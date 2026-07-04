@@ -10,17 +10,18 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("substitute_material")
-public class SubstituteMaterial {
+@TableName("substitute_scenario_item")
+public class SubstituteScenarioItem {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    private String scenarioKey;
     private String primaryCode;
     private String substituteCode;
     private String substituteName;
     private String reason;
-    private BigDecimal substituteQty;
+    private BigDecimal substituteRatio;
     private BigDecimal unitPrice;
 
     // MyBatis-Plus 樂觀鎖：updateById 時自動對比並遞增 version，防止並發覆寫

@@ -8,7 +8,10 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 @Data
-public class SubstituteRequest {
+public class ScenarioItemRequest {
+
+    // 不驗證：由 controller 從路徑變數 scenarioKey 填入，不會出現在 request body 中
+    private String scenarioKey;
 
     @NotBlank(message = "主料編碼不可為空")
     private String primaryMaterialCode;
@@ -20,9 +23,9 @@ public class SubstituteRequest {
 
     private String reason;
 
-    @NotNull(message = "替代數量不可為空")
-    @DecimalMin(value = "0.0001", message = "替代數量必須大於 0")
-    private BigDecimal substituteQty;
+    // 替代比例：1 顆主料對應幾顆替代料，未填預設 1（1:1 替換）
+    @DecimalMin(value = "0.0001", message = "替代比例必須大於 0")
+    private BigDecimal substituteRatio;
 
     @NotNull(message = "替代料單價不可為空")
     @DecimalMin(value = "0.0", inclusive = false, message = "替代料單價必須大於 0")

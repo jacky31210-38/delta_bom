@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>BOM 管理系統</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: #f4f6f8;
+    color: #1a1a1a;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .subtitle { color: #666; margin-bottom: 24px; font-size: 13px; }
+  .panel {
+    background: #fff;
+    border: 1px solid #dde2e7;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #555; }
+  input, select {
+    padding: 6px 8px;
+    border: 1px solid #c7ccd1;
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 160px;
+  }
+  button {
+    padding: 7px 14px;
+    border: none;
+    border-radius: 4px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  button.danger { background: #dc2626; }
+  button.danger:hover { background: #b91c1c; }
+  button.secondary { background: #6b7280; }
+  button.secondary:hover { background: #4b5563; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e8eb; }
+  th { color: #555; font-weight: 600; background: #fafbfc; }
+  .error-box {
+    background: #fef2f2; border: 1px solid #fca5a5; color: #b91c1c;
+    padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 13px; display: none;
+  }
+  .tree { font-size: 13px; }
+  .node { margin: 2px 0 2px 18px; padding: 4px 8px; border-left: 2px solid #e5e8eb; }
+  .node-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .node.substituted { border-left-color: #f59e0b; background: #fffbeb; }
+  .badge {
+    font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #eef2ff; color: #3730a3;
+  }
+  .badge.sub { background: #fef3c7; color: #92400e; }
+  .badge.remain { background: #e5e7eb; color: #374151; }
+  .muted { color: #888; font-size: 12px; }
+  .total-cost { font-size: 16px; font-weight: 700; margin: 10px 0; color: #1d4ed8; }
+  .empty { color: #999; font-size: 13px; padding: 8px 0; }
+  .checkbox-list { display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;
+    border: 1px solid #e5e8eb; border-radius: 4px; padding: 8px; min-width: 260px; }
+  .checkbox-list label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: normal; }
+  .filter-row { margin-bottom: 10px; }
+  .sub-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
+  .sub-input-row .label { min-width: 380px; }
+  .sub-input-row input { width: 140px; min-width: 0; }
+  .sub-inputs-box { border: 1px dashed #c7ccd1; border-radius: 6px; padding: 10px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<h1>BOM 管理系統</h1>
+<div class="subtitle">BOM 結構查詢／成本計算／替代方案維護</div>
+
+<div id="errorBox" class="error-box"></div>
+
+<!-- 區塊一：BOM 查詢 -->
+<div class="panel">
+  <h2>BOM 查詢</h2>
+  <div class="row">
+    <div class="field">
+      <label>根節點物料編碼</label>
+      <input id="rootCodeInput" value="PCB-CONTROL-V2">
+    </div>
+    <div class="field">
+      <label>套用替代方案（可複選）</label>
+      <div id="scenarioCheckboxList" class="checkbox-list">
+        <span class="empty">尚無替代方案</span>
+      </div>
+    </div>
+  </div>
+  <div id="substitutionInputsBox" class="sub-inputs-box" style="display:none;">
+    <div class="muted" style="margin-bottom:8px;">勾選方案後，針對每一筆規則輸入這次要替換的數量（同一顆主料可被多筆規則共同覆蓋，合計不可超過 BOM 數量）：</div>
+    <div id="substitutionInputs"></div>
+  </div>
+  <div class="row">
+    <button onclick="queryBom()">查詢結構</button>
+    <button onclick="queryCost()" class="secondary">計算成本</button>
+  </div>
+  <div id="bomTreeContainer" class="tree"></div>
+  <div id="costContainer"></div>
+</div>
+
+<!-- 區塊二：方案管理 -->
+<div class="panel">
+  <h2>替代方案管理</h2>
+  <div class="row">
+    <div class="field">
+      <label>方案 Key</label>
+      <input id="newScenarioKey" placeholder="例如 MULTI_SOURCE">
+    </div>
+    <div class="field">
+      <label>方案名稱</label>
+      <input id="newScenarioName" placeholder="例如 多供應商策略">
+    </div>
+    <div class="field">
+      <label>描述</label>
+      <input id="newScenarioDesc" placeholder="選填">
+    </div>
+    <button onclick="createScenario()">新增方案</button>
+  </div>
+  <div class="row filter-row">
+    <div class="field">
+      <label>查詢方案（依 Key／名稱關鍵字篩選）</label>
+      <input id="scenarioFilterInput" placeholder="輸入關鍵字即時篩選" oninput="renderScenarioTable()">
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Key</th><th>名稱</th><th>描述</th><th>規則數</th><th></th></tr>
+    </thead>
+    <tbody id="scenarioTableBody"></tbody>
+  </table>
+</div>
+
+<!-- 區塊三：方案明細維護（新增/修改/刪除，須先選方案） -->
+<div class="panel">
+  <h2>方案明細維護（替代規則）</h2>
+  <div class="row">
+    <div class="field">
+      <label>選擇方案</label>
+      <select id="itemScenarioSelect" onchange="loadScenarioItems()"><option value="">請先選擇方案</option></select>
+    </div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>主料編碼</label>
+      <input id="itemPrimaryCode" placeholder="例如 RS485-IC">
+    </div>
+    <div class="field">
+      <label>替代料編碼</label>
+      <input id="itemSubstituteCode" placeholder="例如 RS485-IC-ALT-A">
+    </div>
+    <div class="field">
+      <label>替代料名稱</label>
+      <input id="itemSubstituteName" placeholder="選填">
+    </div>
+    <div class="field">
+      <label>替代比例（1 顆主料對應幾顆）</label>
+      <input id="itemRatio" type="number" step="0.0001" value="1">
+    </div>
+    <div class="field">
+      <label>單價</label>
+      <input id="itemUnitPrice" type="number" step="0.01">
+    </div>
+    <div class="field">
+      <label>原因</label>
+      <input id="itemReason" placeholder="選填">
+    </div>
+    <button onclick="upsertScenarioItem()">新增/更新規則</button>
+  </div>
+  <table>
+    <thead>
+      <tr><th>主料</th><th>替代料</th><th>名稱</th><th>比例</th><th>單價</th><th>原因</th><th></th></tr>
+    </thead>
+    <tbody id="scenarioItemTableBody"></tbody>
+  </table>
+</div>
+
+<!-- 區塊四：所有方案明細查詢（跨方案瀏覽/搜尋，不需先選方案） -->
+<div class="panel">
+  <h2>所有方案明細查詢</h2>
+  <div class="row">
+    <div class="field">
+      <label>關鍵字（主料／替代料／方案 Key）</label>
+      <input id="allItemsFilterInput" placeholder="輸入關鍵字即時搜尋" oninput="renderAllItemsTable()">
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>方案</th><th>主料</th><th>替代料</th><th>名稱</th><th>比例</th><th>單價</th><th>原因</th><th></th></tr>
+    </thead>
+    <tbody id="allItemsTableBody"></tbody>
+  </table>
+</div>
+
+<script>
+const API = '/api';
+let allScenarios = [];
+let allScenarioItemsCache = [];
+const scenarioItemsCache = {}; // scenarioKey -> items[]，供 BOM 查詢區動態產生數量輸入框用
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+function clearError() {
+  const box = document.getElementById('errorBox');
+  box.style.display = 'none';
+  box.textContent = '';
+}
+
+async function api(method, path, body) {
+  const res = await fetch(API + path, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
+  const json = await res.json();
+  if (!res.ok || json.code >= 400) {
+    throw new Error(json.message || ('HTTP ' + res.status));
+  }
+  return json.data;
+}
+
+function getSelectedScenarioKeys() {
+  return Array.from(document.querySelectorAll('#scenarioCheckboxList input[type=checkbox]:checked'))
+    .map(cb => cb.value);
+}
+
+// ── 區塊一：BOM 查詢 ──────────────────────────────
+
+async function onScenarioSelectionChange() {
+  clearError();
+  const keys = getSelectedScenarioKeys();
+  const box = document.getElementById('substitutionInputsBox');
+  const container = document.getElementById('substitutionInputs');
+
+  // 保留使用者已輸入的數量，避免勾選/取消其他方案時把既有輸入清空
+  const previousValues = {};
+  container.querySelectorAll('input[type=number]').forEach(inp => {
+    previousValues[`${inp.dataset.scenarioKey}/${inp.dataset.primaryCode}`] = inp.value;
+  });
+
+  container.innerHTML = '';
+
+  if (keys.length === 0) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+
+  try {
+    for (const key of keys) {
+      if (!scenarioItemsCache[key]) {
+        scenarioItemsCache[key] = await api('GET', `/scenarios/${encodeURIComponent(key)}/items`);
+      }
+      scenarioItemsCache[key].forEach(it => {
+        const row = document.createElement('div');
+        row.className = 'sub-input-row';
+
+        const label = document.createElement('span');
+        label.className = 'label';
+        const ratioText = Number(it.substituteRatio) !== 1 ? `（比例 1:${it.substituteRatio}）` : '';
+        label.textContent = `[${key}] ${it.primaryCode} → ${it.substituteCode}（${it.substituteName || ''}）${ratioText} @ $${it.unitPrice}`;
+
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.step = '0.0001';
+        qtyInput.placeholder = '這次替換數量';
+        qtyInput.dataset.scenarioKey = key;
+        qtyInput.dataset.primaryCode = it.primaryCode;
+        const prevVal = previousValues[`${key}/${it.primaryCode}`];
+        if (prevVal) qtyInput.value = prevVal;
+
+        row.appendChild(label);
+        row.appendChild(qtyInput);
+        container.appendChild(row);
+      });
+    }
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+function collectSubstitutions() {
+  return Array.from(document.querySelectorAll('#substitutionInputs input[type=number]'))
+    .filter(inp => inp.value && parseFloat(inp.value) > 0)
+    .map(inp => ({
+      scenarioKey: inp.dataset.scenarioKey,
+      primaryCode: inp.dataset.primaryCode,
+      qty: parseFloat(inp.value)
+    }));
+}
+
+function renderNode(node) {
+  const div = document.createElement('div');
+  div.className = 'node' + (node.hasSubstitute ? ' substituted' : '');
+
+  const head = document.createElement('div');
+  head.className = 'node-head';
+
+  const nameSpan = document.createElement('span');
+  nameSpan.textContent = `${node.itemCode}（${node.itemName}）× ${node.quantity}`;
+  head.appendChild(nameSpan);
+
+  if (node.unitPrice != null) {
+    const priceSpan = document.createElement('span');
+    priceSpan.className = 'muted';
+    priceSpan.textContent = `單價 $${node.unitPrice}`;
+    head.appendChild(priceSpan);
+  }
+
+  let coveredQty = 0;
+  (node.substituteInfos || []).forEach(info => {
+    coveredQty += Number(info.substituteQty);
+    const badge = document.createElement('span');
+    badge.className = 'badge sub';
+    const ratioText = Number(info.substituteRatio) !== 1 ? `（比例 1:${info.substituteRatio}）` : '';
+    badge.textContent = `[${info.scenarioKey}] 替代 → ${info.substituteCode}（${info.substituteName || ''}）× ${info.substituteQty}${ratioText} @ $${info.unitPrice}`;
+    head.appendChild(badge);
+  });
+
+  if (node.hasSubstitute && coveredQty < Number(node.quantity)) {
+    const remainBadge = document.createElement('span');
+    remainBadge.className = 'badge remain';
+    remainBadge.textContent = `剩餘 ${Number(node.quantity) - coveredQty} 顆使用原廠料`;
+    head.appendChild(remainBadge);
+  }
+
+  div.appendChild(head);
+
+  if (node.children && node.children.length > 0) {
+    node.children.forEach(child => div.appendChild(renderNode(child)));
+  }
+  return div;
+}
+
+async function queryBom() {
+  clearError();
+  const rootCode = document.getElementById('rootCodeInput').value.trim();
+  const container = document.getElementById('bomTreeContainer');
+  container.innerHTML = '';
+  document.getElementById('costContainer').innerHTML = '';
+  if (!rootCode) return;
+  try {
+    const data = await api('POST', `/bom/${encodeURIComponent(rootCode)}/structure`, { substitutions: collectSubstitutions() });
+    container.appendChild(renderNode(data));
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function queryCost() {
+  clearError();
+  const rootCode = document.getElementById('rootCodeInput').value.trim();
+  const container = document.getElementById('costContainer');
+  container.innerHTML = '';
+  if (!rootCode) return;
+  try {
+    const data = await api('POST', `/bom/${encodeURIComponent(rootCode)}/cost`, { substitutions: collectSubstitutions() });
+
+    const total = document.createElement('div');
+    total.className = 'total-cost';
+    total.textContent = `${data.rootName}（${data.rootCode}）總成本：$${data.totalCost}`;
+    container.appendChild(total);
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead><tr>
+        <th>主料</th><th>此行實際用料</th><th>方案</th><th>覆蓋數量</th><th>有效數量</th><th>單價</th><th>小計</th><th>是否替代</th>
+      </tr></thead>`;
+    const tbody = document.createElement('tbody');
+    data.details.forEach(d => {
+      const tr = document.createElement('tr');
+      for (let i = 0; i < 8; i++) tr.appendChild(document.createElement('td'));
+      tr.children[0].textContent = `${d.itemCode}（${d.itemName}）`;
+      tr.children[1].textContent = `${d.effectiveItemCode}（${d.effectiveItemName || ''}）`;
+      tr.children[2].textContent = d.scenarioKey || '-';
+      tr.children[3].textContent = d.bomQuantity;
+      tr.children[4].textContent = d.effectiveQty;
+      tr.children[5].textContent = d.unitPrice != null ? ('$' + d.unitPrice) : '-';
+      tr.children[6].textContent = '$' + d.subtotal;
+      tr.children[7].textContent = d.substituted ? '是' : '否';
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// ── 區塊二：方案管理 ──────────────────────────────
+
+function renderScenarioCheckboxes() {
+  const container = document.getElementById('scenarioCheckboxList');
+  const prevChecked = new Set(getSelectedScenarioKeys());
+  container.innerHTML = '';
+  if (allScenarios.length === 0) {
+    container.innerHTML = '<span class="empty">尚無替代方案</span>';
+    return;
+  }
+  allScenarios.forEach(s => {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = s.scenarioKey;
+    cb.checked = prevChecked.has(s.scenarioKey);
+    cb.onchange = onScenarioSelectionChange;
+    label.appendChild(cb);
+    label.append(`${s.scenarioKey}（${s.scenarioName}）`);
+    container.appendChild(label);
+  });
+}
+
+function renderScenarioTable() {
+  const keyword = document.getElementById('scenarioFilterInput').value.trim().toLowerCase();
+  const filtered = allScenarios.filter(s =>
+    !keyword || s.scenarioKey.toLowerCase().includes(keyword) || s.scenarioName.toLowerCase().includes(keyword)
+  );
+
+  const tbody = document.getElementById('scenarioTableBody');
+  tbody.innerHTML = '';
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty">${allScenarios.length === 0 ? '尚無替代方案' : '沒有符合關鍵字的方案'}</td></tr>`;
+    return;
+  }
+  filtered.forEach(s => {
+    const tr = document.createElement('tr');
+    const tdKey = document.createElement('td'); tdKey.textContent = s.scenarioKey;
+    const tdName = document.createElement('td'); tdName.textContent = s.scenarioName;
+    const tdDesc = document.createElement('td'); tdDesc.textContent = s.description || '';
+    const tdCount = document.createElement('td'); tdCount.textContent = s.itemCount;
+    const tdAction = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.className = 'danger';
+    delBtn.textContent = '刪除';
+    delBtn.onclick = () => deleteScenario(s.scenarioKey);
+    tdAction.appendChild(delBtn);
+    tr.append(tdKey, tdName, tdDesc, tdCount, tdAction);
+    tbody.appendChild(tr);
+  });
+}
+
+async function refreshScenarios() {
+  allScenarios = await api('GET', '/scenarios');
+
+  const itemSelect = document.getElementById('itemScenarioSelect');
+  const prevItem = itemSelect.value;
+  itemSelect.innerHTML = '<option value="">請先選擇方案</option>';
+  allScenarios.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.scenarioKey;
+    opt.textContent = `${s.scenarioKey}（${s.scenarioName}）`;
+    itemSelect.appendChild(opt);
+  });
+  if (allScenarios.some(s => s.scenarioKey === prevItem)) itemSelect.value = prevItem;
+
+  renderScenarioCheckboxes();
+  renderScenarioTable();
+}
+
+async function createScenario() {
+  clearError();
+  const scenarioKey = document.getElementById('newScenarioKey').value.trim();
+  const scenarioName = document.getElementById('newScenarioName').value.trim();
+  const description = document.getElementById('newScenarioDesc').value.trim();
+  try {
+    await api('POST', '/scenarios', { scenarioKey, scenarioName, description });
+    document.getElementById('newScenarioKey').value = '';
+    document.getElementById('newScenarioName').value = '';
+    document.getElementById('newScenarioDesc').value = '';
+    await refreshScenarios();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function deleteScenario(scenarioKey) {
+  clearError();
+  try {
+    await api('DELETE', `/scenarios/${encodeURIComponent(scenarioKey)}`);
+    delete scenarioItemsCache[scenarioKey];
+    await refreshScenarios();
+    document.getElementById('scenarioItemTableBody').innerHTML = '';
+    await loadAllScenarioItems();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// ── 區塊三：方案明細維護 ──────────────────────────────
+
+async function loadScenarioItems() {
+  clearError();
+  const scenarioKey = document.getElementById('itemScenarioSelect').value;
+  const tbody = document.getElementById('scenarioItemTableBody');
+  tbody.innerHTML = '';
+  if (!scenarioKey) return;
+  try {
+    const items = await api('GET', `/scenarios/${encodeURIComponent(scenarioKey)}/items`);
+    if (items.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">此方案尚無替代規則</td></tr>';
+      return;
+    }
+    items.forEach(it => {
+      const tr = document.createElement('tr');
+      for (let i = 0; i < 7; i++) tr.appendChild(document.createElement('td'));
+      tr.children[0].textContent = it.primaryCode;
+      tr.children[1].textContent = it.substituteCode;
+      tr.children[2].textContent = it.substituteName || '';
+      tr.children[3].textContent = it.substituteRatio;
+      tr.children[4].textContent = '$' + it.unitPrice;
+      tr.children[5].textContent = it.reason || '';
+      const delBtn = document.createElement('button');
+      delBtn.className = 'danger';
+      delBtn.textContent = '刪除';
+      delBtn.onclick = () => deleteScenarioItem(scenarioKey, it.primaryCode);
+      tr.children[6].appendChild(delBtn);
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function upsertScenarioItem() {
+  clearError();
+  const scenarioKey = document.getElementById('itemScenarioSelect').value;
+  if (!scenarioKey) {
+    showError('請先選擇一個方案');
+    return;
+  }
+  const body = {
+    primaryMaterialCode: document.getElementById('itemPrimaryCode').value.trim(),
+    substituteMaterialCode: document.getElementById('itemSubstituteCode').value.trim(),
+    substituteMaterialName: document.getElementById('itemSubstituteName').value.trim(),
+    reason: document.getElementById('itemReason').value.trim(),
+    substituteRatio: parseFloat(document.getElementById('itemRatio').value) || 1,
+    unitPrice: parseFloat(document.getElementById('itemUnitPrice').value)
+  };
+  try {
+    await api('POST', `/scenarios/${encodeURIComponent(scenarioKey)}/items`, body);
+    delete scenarioItemsCache[scenarioKey];
+    await loadScenarioItems();
+    await refreshScenarios();
+    await loadAllScenarioItems();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function deleteScenarioItem(scenarioKey, primaryCode) {
+  clearError();
+  try {
+    await api('DELETE', `/scenarios/${encodeURIComponent(scenarioKey)}/items/${encodeURIComponent(primaryCode)}`);
+    delete scenarioItemsCache[scenarioKey];
+    await loadScenarioItems();
+    await refreshScenarios();
+    await loadAllScenarioItems();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// ── 區塊四：所有方案明細查詢 ──────────────────────────────
+
+async function loadAllScenarioItems() {
+  allScenarioItemsCache = await api('GET', '/scenarios/items');
+  renderAllItemsTable();
+}
+
+function renderAllItemsTable() {
+  const keyword = document.getElementById('allItemsFilterInput').value.trim().toLowerCase();
+  const filtered = allScenarioItemsCache.filter(it =>
+    !keyword ||
+    it.scenarioKey.toLowerCase().includes(keyword) ||
+    it.primaryCode.toLowerCase().includes(keyword) ||
+    it.substituteCode.toLowerCase().includes(keyword)
+  );
+
+  const tbody = document.getElementById('allItemsTableBody');
+  tbody.innerHTML = '';
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty">${allScenarioItemsCache.length === 0 ? '尚無替代規則' : '沒有符合關鍵字的結果'}</td></tr>`;
+    return;
+  }
+  filtered.forEach(it => {
+    const tr = document.createElement('tr');
+    for (let i = 0; i < 8; i++) tr.appendChild(document.createElement('td'));
+    tr.children[0].textContent = it.scenarioKey;
+    tr.children[1].textContent = it.primaryCode;
+    tr.children[2].textContent = it.substituteCode;
+    tr.children[3].textContent = it.substituteName || '';
+    tr.children[4].textContent = it.substituteRatio;
+    tr.children[5].textContent = '$' + it.unitPrice;
+    tr.children[6].textContent = it.reason || '';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'danger';
+    delBtn.textContent = '刪除';
+    delBtn.onclick = () => deleteScenarioItem(it.scenarioKey, it.primaryCode);
+    tr.children[7].appendChild(delBtn);
+    tbody.appendChild(tr);
+  });
+}
+
+// ── 初始化 ──────────────────────────────
+
+refreshScenarios().then(queryBom);
+loadAllScenarioItems();
+</script>
+</body>
+</html>

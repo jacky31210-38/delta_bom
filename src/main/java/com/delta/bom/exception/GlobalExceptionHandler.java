@@ -19,6 +19,12 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(404, ex.getMessage());
     }
 
+    @ExceptionHandler(ScenarioNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse<Void> handleScenarioNotFound(ScenarioNotFoundException ex) {
+        return ApiResponse.error(404, ex.getMessage());
+    }
+
     @ExceptionHandler(BusinessException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> handleBusiness(BusinessException ex) {

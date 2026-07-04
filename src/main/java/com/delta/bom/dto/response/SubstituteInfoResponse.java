@@ -13,9 +13,11 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class SubstituteInfoResponse {
 
+    private String scenarioKey;
     private String substituteCode;
     private String substituteName;
-    private BigDecimal substituteQty;
+    private BigDecimal substituteQty;    // 覆蓋主料 BOM 需求量中的多少數量
+    private BigDecimal substituteRatio;  // 替代比例：1 顆主料對應幾顆替代料
     private BigDecimal unitPrice;
     private String reason;
 }

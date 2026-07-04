@@ -23,13 +23,9 @@ public class BomNodeResponse {
     private Integer level;
     private String parentCode;
 
-    // 目前實際生效的料（若有替代料則反映替代料，否則與主料相同）
-    private String effectiveItemCode;
-    private String effectiveItemName;
-    private BigDecimal effectiveUnitPrice;
-
+    // 是否有任何方案替代此主料（可能同時被多個方案「部分覆蓋」）
     private boolean hasSubstitute;
-    private SubstituteInfoResponse substituteInfo;
+    private List<SubstituteInfoResponse> substituteInfos;
 
     private List<BomNodeResponse> children;
 }
