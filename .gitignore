@@ -1,0 +1,7 @@
+# H2 file-mode database (generated at runtime)
+data/
+*.mv.db
+*.trace.db
+
+# IntelliJ IDEA project settings (per-user/per-machine)
+.idea/
