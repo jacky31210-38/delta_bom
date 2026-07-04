@@ -49,3 +49,13 @@ springdoc:
 logging:
   level:
     com.delta.bom: DEBUG
+  charset:
+    console: UTF-8
+    file: UTF-8   # 避免 Windows JVM 預設非 UTF-8 編碼，導致 log 檔案裡的中文變亂碼
+  file:
+    name: logs/application.log
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB      # 單一檔案超過大小就輪替
+      max-history: 30          # 最多保留 30 天的歷史檔案
+      total-size-cap: 500MB    # 所有歷史檔案加總上限，超過會刪除最舊的

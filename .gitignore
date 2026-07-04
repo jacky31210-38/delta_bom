@@ -3,6 +3,9 @@ data/
 *.mv.db
 *.trace.db
 
+# 應用程式 log 檔（執行期產生）
+logs/
+
 # IntelliJ IDEA project settings (per-user/per-machine)
 .idea/
 
