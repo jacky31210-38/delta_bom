@@ -10,19 +10,20 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("bom_item")
-public class BomItem {
+@TableName("material")
+public class Material {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private String itemCode;
-    private String itemName;
+    private String materialCode;
+    private String materialName;
     private String unit;
-    private BigDecimal quantity;
     private BigDecimal unitPrice;
-    private Integer level;
-    private String parentCode;
+
+    // MyBatis-Plus 樂觀鎖：updateById 時自動對比並遞增 version，防止並發覆寫
+    @Version
+    private Integer version;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

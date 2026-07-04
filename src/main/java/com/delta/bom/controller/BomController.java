@@ -3,6 +3,7 @@ package com.delta.bom.controller;
 import com.delta.bom.dto.request.BomQueryRequest;
 import com.delta.bom.dto.request.SubstitutionInput;
 import com.delta.bom.dto.response.*;
+import com.delta.bom.service.BomComponentService;
 import com.delta.bom.service.BomService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -21,6 +22,13 @@ import java.util.List;
 public class BomController {
 
     private final BomService bomService;
+    private final BomComponentService bomComponentService;
+
+    @GetMapping("/roots")
+    @Operation(summary = "列出所有根節點物料", description = "回傳目前所有 BOM 的根節點物料（materialCode/materialName），供前端根節點下拉選單使用。")
+    public ApiResponse<List<RootMaterialResponse>> listRoots() {
+        return ApiResponse.success(bomComponentService.listRoots());
+    }
 
     @PostMapping("/{rootCode}/structure")
     @Operation(

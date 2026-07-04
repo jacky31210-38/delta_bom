@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.delta.bom.mapper.BomComponentMapper">
+
+    <!--
+        遞迴 CTE 查詢：從指定根物料出發，展開整棵 BOM 樹涉及的所有「父物料→子物料」邊。
+        以 material_code 對 material_code 串接（物料對物料的組成關係），而非樹狀節點 id，
+        因此同一個子物料的組成（例如 POWER-MODULE 底下有哪些子件）只需定義一次，
+        任何引用到它的上層都會共用同一份，不需要重複建立。
+        H2 2.x 與主流關聯式資料庫（MySQL 8+、PostgreSQL）均支援 WITH RECURSIVE。
+    -->
+    <select id="selectSubtreeEdges" resultType="com.delta.bom.entity.BomComponent">
+        WITH RECURSIVE bom_tree (id, parent_material_code, child_material_code, quantity, created_at, updated_at) AS (
+            SELECT id, parent_material_code, child_material_code, quantity, created_at, updated_at
+            FROM bom_component
+            WHERE parent_material_code = #{rootMaterialCode}
+            UNION ALL
+            SELECT bc.id, bc.parent_material_code, bc.child_material_code, bc.quantity, bc.created_at, bc.updated_at
+            FROM bom_component bc
+            INNER JOIN bom_tree bt ON bc.parent_material_code = bt.child_material_code
+        )
+        SELECT id, parent_material_code, child_material_code, quantity, created_at, updated_at
+        FROM bom_tree
+    </select>
+
+</mapper>

@@ -5,13 +5,15 @@ import com.delta.bom.dto.request.ScenarioItemRequest;
 import com.delta.bom.dto.request.ScenarioRequest;
 import com.delta.bom.dto.request.SubstitutionInput;
 import com.delta.bom.dto.response.*;
-import com.delta.bom.entity.BomItem;
+import com.delta.bom.entity.BomComponent;
+import com.delta.bom.entity.Material;
 import com.delta.bom.entity.SubstituteScenario;
 import com.delta.bom.entity.SubstituteScenarioItem;
 import com.delta.bom.exception.BomNotFoundException;
 import com.delta.bom.exception.BusinessException;
 import com.delta.bom.exception.ScenarioNotFoundException;
-import com.delta.bom.mapper.BomItemMapper;
+import com.delta.bom.mapper.BomComponentMapper;
+import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.mapper.SubstituteScenarioItemMapper;
 import com.delta.bom.mapper.SubstituteScenarioMapper;
 import com.delta.bom.service.BomService;
@@ -35,7 +37,8 @@ public class BomServiceImpl implements BomService {
 
     private static final int MAX_DEPTH = 50;
 
-    private final BomItemMapper bomItemMapper;
+    private final BomComponentMapper bomComponentMapper;
+    private final MaterialMapper materialMapper;
     private final SubstituteScenarioMapper scenarioMapper;
     private final SubstituteScenarioItemMapper scenarioItemMapper;
 
@@ -62,51 +65,65 @@ public class BomServiceImpl implements BomService {
      * 各自的 @Cacheable 獨立作用，避免 Spring AOP 自呼叫無法攔截的問題。
      */
     private BomNodeResponse buildBomTree(String rootCode, List<SubstitutionInput> substitutions) {
-        // 用遞迴 CTE 一次拉取整棵子樹，避免 N+1 查詢
-        List<BomItem> nodes = bomItemMapper.selectDescendantsWithSelf(rootCode);
-        if (nodes.isEmpty()) {
+        Material rootMaterial = materialMapper.selectOne(
+            new LambdaQueryWrapper<Material>().eq(Material::getMaterialCode, rootCode)
+        );
+        if (rootMaterial == null) {
             throw new BomNotFoundException(rootCode);
         }
 
+        // 用遞迴 CTE 一次展開整棵樹涉及的所有「父物料→子物料」邊，避免 N+1 查詢
+        List<BomComponent> edges = bomComponentMapper.selectSubtreeEdges(rootCode);
+
+        Set<String> materialCodes = new HashSet<>();
+        materialCodes.add(rootCode);
+        edges.forEach(e -> {
+            materialCodes.add(e.getParentMaterialCode());
+            materialCodes.add(e.getChildMaterialCode());
+        });
+        Map<String, Material> materialMap = materialMapper.selectList(
+                new LambdaQueryWrapper<Material>().in(Material::getMaterialCode, materialCodes)
+            ).stream()
+            .collect(Collectors.toMap(Material::getMaterialCode, m -> m));
+
         Map<String, List<AppliedSubstitution>> substituteMap = resolveSubstitutions(substitutions);
 
-        BomItem root = nodes.stream()
-            .filter(n -> n.getItemCode().equals(rootCode))
-            .findFirst()
-            .orElseThrow(() -> new BomNotFoundException(rootCode));
+        // 以 parentMaterialCode 分組建立父→子映射
+        Map<String, List<BomComponent>> childrenMap = edges.stream()
+            .collect(Collectors.groupingBy(BomComponent::getParentMaterialCode));
 
-        // 以 parentCode 分組建立父→子映射
-        Map<String, List<BomItem>> childrenMap = nodes.stream()
-            .filter(n -> n.getParentCode() != null)
-            .collect(Collectors.groupingBy(BomItem::getParentCode));
-
-        return buildNode(root, childrenMap, substituteMap, new HashSet<>(), 0);
+        // 根節點本身沒有「上層引用它的數量」，視為 1（要生產 1 個成品）
+        return buildNode(rootCode, BigDecimal.ONE, childrenMap, materialMap, substituteMap, new HashSet<>(), 0, null);
     }
 
-    private BomNodeResponse buildNode(BomItem item,
-                                      Map<String, List<BomItem>> childrenMap,
+    private BomNodeResponse buildNode(String materialCode,
+                                      BigDecimal quantity,
+                                      Map<String, List<BomComponent>> childrenMap,
+                                      Map<String, Material> materialMap,
                                       Map<String, List<AppliedSubstitution>> substituteMap,
                                       Set<String> visitedInPath,
-                                      int depth) {
+                                      int depth,
+                                      String parentMaterialCode) {
         if (depth > MAX_DEPTH) {
-            throw new BusinessException("BOM 樹超過最大深度限制（" + MAX_DEPTH + " 層）：" + item.getItemCode());
+            throw new BusinessException("BOM 樹超過最大深度限制（" + MAX_DEPTH + " 層）：" + materialCode);
         }
-        // 路徑上若已出現相同編碼，則為循環依賴
-        if (!visitedInPath.add(item.getItemCode())) {
-            throw new BusinessException("偵測到 BOM 循環依賴：" + item.getItemCode());
+        // 路徑上若已出現相同物料編碼，則為循環依賴
+        if (!visitedInPath.add(materialCode)) {
+            throw new BusinessException("偵測到 BOM 循環依賴：" + materialCode);
         }
 
-        List<AppliedSubstitution> matches = substituteMap.getOrDefault(item.getItemCode(), Collections.emptyList());
+        Material material = materialMap.get(materialCode);
+        List<AppliedSubstitution> matches = substituteMap.getOrDefault(materialCode, Collections.emptyList());
 
         // 允許同一顆主料被多個方案的規則「共同覆蓋」，但這次輸入的數量合計不可超過主料 BOM 數量。
         // 查詢結構與計算成本都會走到這裡，確保兩個入口的驗證規則一致。
         BigDecimal totalCovered = matches.stream()
             .map(AppliedSubstitution::qty)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (totalCovered.compareTo(item.getQuantity()) > 0) {
+        if (totalCovered.compareTo(quantity) > 0) {
             throw new BusinessException(String.format(
                 "套用的替代數量合計(%s)超過主料 BOM 數量(%s)，物料編碼：%s",
-                totalCovered, item.getQuantity(), item.getItemCode()));
+                totalCovered, quantity, materialCode));
         }
 
         boolean hasSubstitute = !matches.isEmpty();
@@ -122,21 +139,23 @@ public class BomServiceImpl implements BomService {
                 .build())
             .collect(Collectors.toList());
 
+        // 一顆子物料的組成（例如 POWER-MODULE 底下有哪些子件）只定義一次，
+        // 這裡沿 childrenMap（依父物料編碼分組的邊）往下展開，天然支援同一物料被多處共用。
         List<BomNodeResponse> children = childrenMap
-            .getOrDefault(item.getItemCode(), Collections.emptyList())
+            .getOrDefault(materialCode, Collections.emptyList())
             .stream()
-            .map(child -> buildNode(child, childrenMap, substituteMap,
-                                    new HashSet<>(visitedInPath), depth + 1))
+            .map(edge -> buildNode(edge.getChildMaterialCode(), edge.getQuantity(), childrenMap, materialMap, substituteMap,
+                                   new HashSet<>(visitedInPath), depth + 1, materialCode))
             .collect(Collectors.toList());
 
         return BomNodeResponse.builder()
-            .itemCode(item.getItemCode())
-            .itemName(item.getItemName())
-            .unit(item.getUnit())
-            .quantity(item.getQuantity())
-            .unitPrice(item.getUnitPrice())
-            .level(item.getLevel())
-            .parentCode(item.getParentCode())
+            .itemCode(materialCode)
+            .itemName(material != null ? material.getMaterialName() : null)
+            .unit(material != null ? material.getUnit() : null)
+            .quantity(quantity)
+            .unitPrice(material != null ? material.getUnitPrice() : null)
+            .level(depth)
+            .parentCode(parentMaterialCode)
             .hasSubstitute(hasSubstitute)
             .substituteInfos(substituteInfos)
             .children(children)
@@ -303,9 +322,9 @@ public class BomServiceImpl implements BomService {
         getScenarioOrThrow(request.getScenarioKey());
 
         // 確認主料存在（規則本身不記錄數量，數量是查詢當下才輸入，故不在此驗證 BOM 數量）
-        BomItem primary = bomItemMapper.selectOne(
-            new LambdaQueryWrapper<BomItem>()
-                .eq(BomItem::getItemCode, request.getPrimaryMaterialCode())
+        Material primary = materialMapper.selectOne(
+            new LambdaQueryWrapper<Material>()
+                .eq(Material::getMaterialCode, request.getPrimaryMaterialCode())
         );
         if (primary == null) {
             throw new BomNotFoundException(request.getPrimaryMaterialCode());

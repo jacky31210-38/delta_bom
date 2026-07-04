@@ -73,12 +73,24 @@
   .sub-input-row .label { min-width: 380px; }
   .sub-input-row input { width: 140px; min-width: 0; }
   .sub-inputs-box { border: 1px dashed #c7ccd1; border-radius: 6px; padding: 10px; margin-bottom: 14px; }
+  .combobox-wrap { position: relative; }
+  .combobox-dropdown {
+    position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; z-index: 50;
+    background: #fff; border: 1px solid #c7ccd1; border-radius: 4px;
+    max-height: 220px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  .combobox-item { padding: 6px 10px; cursor: pointer; }
+  .combobox-item:hover, .combobox-item.active { background: #eef2ff; }
+  .combobox-empty { padding: 6px 10px; color: #999; font-size: 12px; }
+  .inline-edit { display: flex; gap: 4px; align-items: center; }
+  .inline-edit input { width: 80px; min-width: 0; padding: 3px 6px; }
+  .sub-panel-title { font-size: 13px; font-weight: 600; margin: 4px 0 8px; color: #444; }
 </style>
 </head>
 <body>
 
 <h1>BOM 管理系統</h1>
-<div class="subtitle">BOM 結構查詢／成本計算／替代方案維護</div>
+<div class="subtitle">物料主檔／BOM 結構維護／BOM 查詢／成本計算／替代方案維護</div>
 
 <div id="errorBox" class="error-box"></div>
 
@@ -87,8 +99,10 @@
   <h2>BOM 查詢</h2>
   <div class="row">
     <div class="field">
-      <label>根節點物料編碼</label>
-      <input id="rootCodeInput" value="PCB-CONTROL-V2">
+      <label>根節點物料</label>
+      <div class="combobox-wrap" style="min-width:260px;">
+        <input id="rootCodeInput" placeholder="輸入關鍵字搜尋根節點物料">
+      </div>
     </div>
     <div class="field">
       <label>套用替代方案（可複選）</label>
@@ -109,7 +123,79 @@
   <div id="costContainer"></div>
 </div>
 
-<!-- 區塊二：方案管理 -->
+<!-- 區塊二：物料主檔管理 -->
+<div class="panel">
+  <h2>物料主檔管理</h2>
+  <div class="row">
+    <div class="field">
+      <label>物料編碼</label>
+      <input id="newMaterialCode" placeholder="例如 IC-MCU">
+    </div>
+    <div class="field">
+      <label>物料名稱</label>
+      <input id="newMaterialName" placeholder="例如 微控制器">
+    </div>
+    <div class="field">
+      <label>單位</label>
+      <input id="newMaterialUnit" placeholder="例如 個">
+    </div>
+    <div class="field">
+      <label>單價（組件類可留空）</label>
+      <input id="newMaterialPrice" type="number" step="0.01">
+    </div>
+    <button onclick="createMaterial()">新增物料</button>
+  </div>
+  <div class="row filter-row">
+    <div class="field">
+      <label>查詢物料（依編碼／名稱關鍵字篩選）</label>
+      <input id="materialFilterInput" placeholder="輸入關鍵字即時篩選" oninput="renderMaterialTable()">
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>編碼</th><th>名稱</th><th>單位</th><th>單價</th><th></th></tr>
+    </thead>
+    <tbody id="materialTableBody"></tbody>
+  </table>
+</div>
+
+<!-- 區塊三：BOM 結構維護 -->
+<div class="panel">
+  <h2>BOM 結構維護</h2>
+  <div class="muted" style="margin-bottom:10px;">
+    定義「父物料的 BOM 裡包含子物料，數量多少」。同一顆物料的組成只需定義一次，
+    任何引用到它的地方（不同產品、不同上層組件）都會共用同一份，不用重複建立。
+    要開一個全新的 BOM，只要先在上方新增該物料，接著把它當「父物料」加入第一筆組成即可。
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>父物料（誰的 BOM）</label>
+      <div class="combobox-wrap" style="min-width:240px;">
+        <input id="parentMaterialInput" placeholder="輸入關鍵字搜尋物料">
+      </div>
+    </div>
+    <div class="field">
+      <label>子物料（BOM 裡包含誰）</label>
+      <div class="combobox-wrap" style="min-width:240px;">
+        <input id="childMaterialInput" placeholder="輸入關鍵字搜尋物料">
+      </div>
+    </div>
+    <div class="field">
+      <label>數量</label>
+      <input id="componentQty" type="number" step="0.0001" value="1">
+    </div>
+    <button onclick="createComponent()">新增組成</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>父物料</th><th>子物料</th><th>數量</th><th></th></tr>
+    </thead>
+    <tbody id="componentTableBody"></tbody>
+  </table>
+</div>
+
+<!-- 區塊四：方案管理 -->
 <div class="panel">
   <h2>替代方案管理</h2>
   <div class="row">
@@ -141,7 +227,7 @@
   </table>
 </div>
 
-<!-- 區塊三：方案明細維護（新增/修改/刪除，須先選方案） -->
+<!-- 區塊五：方案明細維護（新增/修改/刪除，須先選方案） -->
 <div class="panel">
   <h2>方案明細維護（替代規則）</h2>
   <div class="row">
@@ -152,16 +238,16 @@
   </div>
   <div class="row">
     <div class="field">
-      <label>主料編碼</label>
-      <input id="itemPrimaryCode" placeholder="例如 RS485-IC">
+      <label>主料</label>
+      <div class="combobox-wrap" style="min-width:220px;">
+        <input id="itemPrimaryCode" placeholder="輸入關鍵字搜尋物料">
+      </div>
     </div>
     <div class="field">
-      <label>替代料編碼</label>
-      <input id="itemSubstituteCode" placeholder="例如 RS485-IC-ALT-A">
-    </div>
-    <div class="field">
-      <label>替代料名稱</label>
-      <input id="itemSubstituteName" placeholder="選填">
+      <label>替代料</label>
+      <div class="combobox-wrap" style="min-width:220px;">
+        <input id="itemSubstituteCode" placeholder="輸入關鍵字搜尋物料">
+      </div>
     </div>
     <div class="field">
       <label>替代比例（1 顆主料對應幾顆）</label>
@@ -185,7 +271,7 @@
   </table>
 </div>
 
-<!-- 區塊四：所有方案明細查詢（跨方案瀏覽/搜尋，不需先選方案） -->
+<!-- 區塊六：所有方案明細查詢（跨方案瀏覽/搜尋，不需先選方案） -->
 <div class="panel">
   <h2>所有方案明細查詢</h2>
   <div class="row">
@@ -206,12 +292,17 @@
 const API = '/api';
 let allScenarios = [];
 let allScenarioItemsCache = [];
+let allMaterials = [];
+let allBomComponents = [];
+let allRoots = [];
 const scenarioItemsCache = {}; // scenarioKey -> items[]，供 BOM 查詢區動態產生數量輸入框用
 
 function showError(msg) {
   const box = document.getElementById('errorBox');
   box.textContent = msg;
   box.style.display = 'block';
+  // 頁面很長，操作下方區塊觸發的錯誤如果不捲動到看得見的地方，會讓人以為「沒有反應」
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 function clearError() {
   const box = document.getElementById('errorBox');
@@ -232,12 +323,89 @@ async function api(method, path, body) {
   return json.data;
 }
 
+// ── 共用元件：輕量 combobox（打字即時篩選，可同時顯示代碼＋名稱） ──────────
+
+function createCombobox(inputEl, getOptions, onSelect) {
+  const dropdown = document.createElement('div');
+  dropdown.className = 'combobox-dropdown';
+  dropdown.style.display = 'none';
+  inputEl.insertAdjacentElement('afterend', dropdown);
+  inputEl.autocomplete = 'off';
+
+  function renderContent() {
+    const keyword = (inputEl.value || '').trim().toLowerCase();
+    const options = getOptions();
+    const filtered = keyword
+      ? options.filter(o => o.label.toLowerCase().includes(keyword) || o.value.toLowerCase().includes(keyword))
+      : options;
+
+    dropdown.innerHTML = '';
+    if (filtered.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'combobox-empty';
+      empty.textContent = '沒有符合的選項';
+      dropdown.appendChild(empty);
+    } else {
+      filtered.slice(0, 50).forEach(o => {
+        const item = document.createElement('div');
+        item.className = 'combobox-item';
+        item.textContent = o.label;
+        item.onmousedown = (e) => {
+          e.preventDefault(); // 避免搶在 blur 前失焦，導致點擊選不到
+          inputEl.value = o.label;
+          inputEl.dataset.value = o.value;
+          dropdown.style.display = 'none';
+          if (onSelect) onSelect(o.value, o.label);
+        };
+        dropdown.appendChild(item);
+      });
+    }
+  }
+
+  // 使用者主動聚焦/輸入時：重新計算選項並強制展開
+  function renderAndShow() {
+    renderContent();
+    dropdown.style.display = 'block';
+  }
+
+  inputEl.addEventListener('focus', renderAndShow);
+  inputEl.addEventListener('input', () => {
+    inputEl.dataset.value = '';
+    renderAndShow();
+  });
+  inputEl.addEventListener('blur', () => {
+    setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+  });
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') dropdown.style.display = 'none';
+  });
+
+  return {
+    getValue: () => inputEl.dataset.value || '',
+    setValue: (value, label) => {
+      inputEl.dataset.value = value || '';
+      inputEl.value = value ? (label !== undefined ? label : value) : '';
+    },
+    // 外部資料異動後呼叫：只有在下拉目前是展開狀態時才重繪內容，不會無故把下拉框彈出來
+    refresh: () => { if (dropdown.style.display === 'block') renderContent(); }
+  };
+}
+
+function materialOptions() {
+  return allMaterials.map(m => ({ value: m.materialCode, label: `${m.materialCode}（${m.materialName}）` }));
+}
+function rootOptions() {
+  return allRoots.map(r => ({ value: r.materialCode, label: `${r.materialCode}（${r.materialName}）` }));
+}
+
+// ── 區塊一：BOM 查詢 ──────────────────────────────
+
+const rootCombobox = createCombobox(document.getElementById('rootCodeInput'), rootOptions);
+
 function getSelectedScenarioKeys() {
   return Array.from(document.querySelectorAll('#scenarioCheckboxList input[type=checkbox]:checked'))
     .map(cb => cb.value);
 }
-
-// ── 區塊一：BOM 查詢 ──────────────────────────────
 
 async function onScenarioSelectionChange() {
   clearError();
@@ -347,11 +515,14 @@ function renderNode(node) {
 
 async function queryBom() {
   clearError();
-  const rootCode = document.getElementById('rootCodeInput').value.trim();
+  const rootCode = rootCombobox.getValue();
   const container = document.getElementById('bomTreeContainer');
   container.innerHTML = '';
   document.getElementById('costContainer').innerHTML = '';
-  if (!rootCode) return;
+  if (!rootCode) {
+    showError('請先從下拉選單選擇根節點物料');
+    return;
+  }
   try {
     const data = await api('POST', `/bom/${encodeURIComponent(rootCode)}/structure`, { substitutions: collectSubstitutions() });
     container.appendChild(renderNode(data));
@@ -362,10 +533,13 @@ async function queryBom() {
 
 async function queryCost() {
   clearError();
-  const rootCode = document.getElementById('rootCodeInput').value.trim();
+  const rootCode = rootCombobox.getValue();
   const container = document.getElementById('costContainer');
   container.innerHTML = '';
-  if (!rootCode) return;
+  if (!rootCode) {
+    showError('請先從下拉選單選擇根節點物料');
+    return;
+  }
   try {
     const data = await api('POST', `/bom/${encodeURIComponent(rootCode)}/cost`, { substitutions: collectSubstitutions() });
 
@@ -400,7 +574,162 @@ async function queryCost() {
   }
 }
 
-// ── 區塊二：方案管理 ──────────────────────────────
+// ── 區塊二：物料主檔管理 ──────────────────────────────
+
+async function refreshMaterials() {
+  allMaterials = await api('GET', '/materials');
+  renderMaterialTable();
+}
+
+function renderMaterialTable() {
+  const keyword = document.getElementById('materialFilterInput').value.trim().toLowerCase();
+  const filtered = allMaterials.filter(m =>
+    !keyword || m.materialCode.toLowerCase().includes(keyword) || m.materialName.toLowerCase().includes(keyword)
+  );
+
+  const tbody = document.getElementById('materialTableBody');
+  tbody.innerHTML = '';
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty">${allMaterials.length === 0 ? '尚無物料' : '沒有符合關鍵字的物料'}</td></tr>`;
+    return;
+  }
+  filtered.forEach(m => {
+    const tr = document.createElement('tr');
+    for (let i = 0; i < 5; i++) tr.appendChild(document.createElement('td'));
+    tr.children[0].textContent = m.materialCode;
+    tr.children[1].textContent = m.materialName;
+    tr.children[2].textContent = m.unit || '';
+    tr.children[3].textContent = m.unitPrice != null ? ('$' + m.unitPrice) : '-';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'danger';
+    delBtn.textContent = '刪除';
+    delBtn.onclick = () => deleteMaterial(m.materialCode);
+    tr.children[4].appendChild(delBtn);
+    tbody.appendChild(tr);
+  });
+}
+
+async function createMaterial() {
+  clearError();
+  const body = {
+    materialCode: document.getElementById('newMaterialCode').value.trim(),
+    materialName: document.getElementById('newMaterialName').value.trim(),
+    unit: document.getElementById('newMaterialUnit').value.trim(),
+    unitPrice: document.getElementById('newMaterialPrice').value ? parseFloat(document.getElementById('newMaterialPrice').value) : null
+  };
+  try {
+    await api('POST', '/materials', body);
+    document.getElementById('newMaterialCode').value = '';
+    document.getElementById('newMaterialName').value = '';
+    document.getElementById('newMaterialUnit').value = '';
+    document.getElementById('newMaterialPrice').value = '';
+    await refreshMaterials();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function deleteMaterial(materialCode) {
+  clearError();
+  try {
+    await api('DELETE', `/materials/${encodeURIComponent(materialCode)}`);
+    await refreshMaterials();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// ── 區塊三：BOM 結構維護 ──────────────────────────────
+
+const parentMaterialCombobox = createCombobox(document.getElementById('parentMaterialInput'), materialOptions);
+const childMaterialCombobox = createCombobox(document.getElementById('childMaterialInput'), materialOptions);
+
+async function refreshBomComponents() {
+  allBomComponents = await api('GET', '/bom-components');
+  allRoots = await api('GET', '/bom/roots');
+  rootCombobox.refresh();
+  renderComponentTable();
+}
+
+function renderComponentTable() {
+  const tbody = document.getElementById('componentTableBody');
+  tbody.innerHTML = '';
+  if (allBomComponents.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">尚無 BOM 組成關係</td></tr>';
+    return;
+  }
+  allBomComponents.forEach(c => {
+    const tr = document.createElement('tr');
+    for (let i = 0; i < 4; i++) tr.appendChild(document.createElement('td'));
+
+    tr.children[0].textContent = `${c.parentMaterialCode}（${c.parentMaterialName || ''}）`;
+    tr.children[1].textContent = `${c.childMaterialCode}（${c.childMaterialName || ''}）`;
+
+    const qtyWrap = document.createElement('div');
+    qtyWrap.className = 'inline-edit';
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.step = '0.0001';
+    qtyInput.value = c.quantity;
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'secondary';
+    saveBtn.textContent = '儲存';
+    saveBtn.onclick = () => updateComponentQuantity(c.id, parseFloat(qtyInput.value));
+    qtyWrap.append(qtyInput, saveBtn);
+    tr.children[2].appendChild(qtyWrap);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'danger';
+    delBtn.textContent = '刪除';
+    delBtn.onclick = () => deleteComponent(c.id, c.parentMaterialCode, c.childMaterialCode);
+    tr.children[3].appendChild(delBtn);
+
+    tbody.appendChild(tr);
+  });
+}
+
+async function createComponent() {
+  clearError();
+  const parentMaterialCode = parentMaterialCombobox.getValue();
+  const childMaterialCode = childMaterialCombobox.getValue();
+  const quantity = parseFloat(document.getElementById('componentQty').value);
+  if (!parentMaterialCode || !childMaterialCode) {
+    showError('請從下拉選單選擇父物料與子物料（若尚未建立，請先到上方「物料主檔管理」新增該物料）');
+    return;
+  }
+  try {
+    await api('POST', '/bom-components', { parentMaterialCode, childMaterialCode, quantity });
+    childMaterialCombobox.setValue('');
+    await refreshBomComponents();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function updateComponentQuantity(id, quantity) {
+  clearError();
+  try {
+    await api('PUT', `/bom-components/${id}`, { quantity });
+    await refreshBomComponents();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function deleteComponent(id, parentMaterialCode, childMaterialCode) {
+  clearError();
+  if (!confirm(`確定要刪除「${parentMaterialCode} 包含 ${childMaterialCode}」這條組成關係嗎？（${childMaterialCode} 自己的組成不會受影響）`)) {
+    return;
+  }
+  try {
+    await api('DELETE', `/bom-components/${id}`);
+    await refreshBomComponents();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// ── 區塊四：方案管理 ──────────────────────────────
 
 function renderScenarioCheckboxes() {
   const container = document.getElementById('scenarioCheckboxList');
@@ -499,7 +828,10 @@ async function deleteScenario(scenarioKey) {
   }
 }
 
-// ── 區塊三：方案明細維護 ──────────────────────────────
+// ── 區塊五：方案明細維護 ──────────────────────────────
+
+const itemPrimaryCombobox = createCombobox(document.getElementById('itemPrimaryCode'), materialOptions);
+const itemSubstituteCombobox = createCombobox(document.getElementById('itemSubstituteCode'), materialOptions);
 
 async function loadScenarioItems() {
   clearError();
@@ -541,10 +873,17 @@ async function upsertScenarioItem() {
     showError('請先選擇一個方案');
     return;
   }
+  const primaryMaterialCode = itemPrimaryCombobox.getValue();
+  const substituteMaterialCode = itemSubstituteCombobox.getValue();
+  if (!primaryMaterialCode || !substituteMaterialCode) {
+    showError('請從下拉選單選擇主料與替代料（若物料尚未建立，請先到「物料主檔管理」新增）');
+    return;
+  }
+  const substituteMaterial = allMaterials.find(m => m.materialCode === substituteMaterialCode);
   const body = {
-    primaryMaterialCode: document.getElementById('itemPrimaryCode').value.trim(),
-    substituteMaterialCode: document.getElementById('itemSubstituteCode').value.trim(),
-    substituteMaterialName: document.getElementById('itemSubstituteName').value.trim(),
+    primaryMaterialCode,
+    substituteMaterialCode,
+    substituteMaterialName: substituteMaterial ? substituteMaterial.materialName : '',
     reason: document.getElementById('itemReason').value.trim(),
     substituteRatio: parseFloat(document.getElementById('itemRatio').value) || 1,
     unitPrice: parseFloat(document.getElementById('itemUnitPrice').value)
@@ -573,7 +912,7 @@ async function deleteScenarioItem(scenarioKey, primaryCode) {
   }
 }
 
-// ── 區塊四：所有方案明細查詢 ──────────────────────────────
+// ── 區塊六：所有方案明細查詢 ──────────────────────────────
 
 async function loadAllScenarioItems() {
   allScenarioItemsCache = await api('GET', '/scenarios/items');
@@ -616,8 +955,16 @@ function renderAllItemsTable() {
 
 // ── 初始化 ──────────────────────────────
 
-refreshScenarios().then(queryBom);
-loadAllScenarioItems();
+(async function init() {
+  await refreshMaterials();
+  await refreshBomComponents();
+  if (allRoots.length > 0) {
+    rootCombobox.setValue(allRoots[0].materialCode, `${allRoots[0].materialCode}（${allRoots[0].materialName}）`);
+  }
+  await refreshScenarios();
+  await loadAllScenarioItems();
+  await queryBom();
+})();
 </script>
 </body>
 </html>
