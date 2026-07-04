@@ -5,3 +5,6 @@ data/
 
 # IntelliJ IDEA project settings (per-user/per-machine)
 .idea/
+
+# Maven build output
+target/
