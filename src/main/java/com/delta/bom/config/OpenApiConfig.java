@@ -14,8 +14,8 @@ public class OpenApiConfig {
             .info(new Info()
                 .title("BOM 管理系統 API")
                 .description("提供 BOM 結構查詢、成本計算、替代料管理功能。\n\n" +
-                             "Swagger UI：http://localhost:8080/swagger-ui.html\n" +
-                             "H2 Console：http://localhost:8080/h2-console")
+                             "Swagger UI：http://localhost:8095/swagger-ui.html\n" +
+                             "H2 Console：http://localhost:8095/h2-console")
                 .version("1.0.0"));
     }
 }
