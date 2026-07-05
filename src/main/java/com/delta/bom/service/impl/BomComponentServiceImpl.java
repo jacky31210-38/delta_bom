@@ -11,6 +11,7 @@ import com.delta.bom.exception.BusinessException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.service.BomComponentService;
+import com.delta.bom.service.MaterialFinder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -30,6 +31,7 @@ public class BomComponentServiceImpl implements BomComponentService {
 
     private final BomComponentMapper bomComponentMapper;
     private final MaterialMapper materialMapper;
+    private final MaterialFinder materialFinder;
 
     @Override
     @Transactional
@@ -41,8 +43,8 @@ public class BomComponentServiceImpl implements BomComponentService {
         String parentCode = request.getParentMaterialCode();
         String childCode = request.getChildMaterialCode();
 
-        Material parent = getMaterialOrThrow(parentCode);
-        Material child = getMaterialOrThrow(childCode);
+        Material parent = materialFinder.getOrThrow(parentCode);
+        Material child = materialFinder.getOrThrow(childCode);
 
         BomComponent existing = bomComponentMapper.selectOne(
             new LambdaQueryWrapper<BomComponent>()
@@ -124,8 +126,8 @@ public class BomComponentServiceImpl implements BomComponentService {
         bomComponentMapper.updateById(component);
         log.info("更新 BOM 組成數量：id={}，quantity={}", id, request.getQuantity());
 
-        Material parent = getMaterialOrThrow(component.getParentMaterialCode());
-        Material child = getMaterialOrThrow(component.getChildMaterialCode());
+        Material parent = materialFinder.getOrThrow(component.getParentMaterialCode());
+        Material child = materialFinder.getOrThrow(component.getChildMaterialCode());
         return toResponse(component, parent, child);
     }
 
@@ -182,16 +184,6 @@ public class BomComponentServiceImpl implements BomComponentService {
                 new LambdaQueryWrapper<Material>().in(Material::getMaterialCode, codes)
             ).stream()
             .collect(Collectors.toMap(Material::getMaterialCode, m -> m));
-    }
-
-    private Material getMaterialOrThrow(String materialCode) {
-        Material material = materialMapper.selectOne(
-            new LambdaQueryWrapper<Material>().eq(Material::getMaterialCode, materialCode)
-        );
-        if (material == null) {
-            throw new BusinessException("找不到物料：" + materialCode);
-        }
-        return material;
     }
 
     private BomComponentResponse toResponse(BomComponent component, Material parent, Material child) {

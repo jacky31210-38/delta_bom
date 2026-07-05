@@ -6,11 +6,11 @@ import com.delta.bom.dto.response.MaterialResponse;
 import com.delta.bom.entity.BomComponent;
 import com.delta.bom.entity.Material;
 import com.delta.bom.entity.SubstituteScenarioItem;
-import com.delta.bom.exception.BomNotFoundException;
 import com.delta.bom.exception.BusinessException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.mapper.SubstituteScenarioItemMapper;
+import com.delta.bom.service.MaterialFinder;
 import com.delta.bom.service.MaterialService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +31,7 @@ public class MaterialServiceImpl implements MaterialService {
     private final MaterialMapper materialMapper;
     private final BomComponentMapper bomComponentMapper;
     private final SubstituteScenarioItemMapper scenarioItemMapper;
+    private final MaterialFinder materialFinder;
 
     @Override
     @Transactional
@@ -67,7 +68,7 @@ public class MaterialServiceImpl implements MaterialService {
         @CacheEvict(value = "bomCost", allEntries = true)
     })
     public MaterialResponse updateMaterial(String materialCode, MaterialRequest request) {
-        Material material = getMaterialOrThrow(materialCode);
+        Material material = materialFinder.getOrThrow(materialCode);
         material.setMaterialName(request.getMaterialName());
         material.setUnit(request.getUnit());
         material.setUnitPrice(request.getUnitPrice());
@@ -79,7 +80,7 @@ public class MaterialServiceImpl implements MaterialService {
     @Override
     @Transactional
     public void deleteMaterial(String materialCode) {
-        getMaterialOrThrow(materialCode);
+        materialFinder.getOrThrow(materialCode);
 
         long componentUsage = bomComponentMapper.selectCount(
             new LambdaQueryWrapper<BomComponent>()
@@ -107,16 +108,6 @@ public class MaterialServiceImpl implements MaterialService {
 
         materialMapper.delete(new LambdaQueryWrapper<Material>().eq(Material::getMaterialCode, materialCode));
         log.info("刪除物料：{}", materialCode);
-    }
-
-    private Material getMaterialOrThrow(String materialCode) {
-        Material material = materialMapper.selectOne(
-            new LambdaQueryWrapper<Material>().eq(Material::getMaterialCode, materialCode)
-        );
-        if (material == null) {
-            throw new BomNotFoundException(materialCode);
-        }
-        return material;
     }
 
     private MaterialResponse toResponse(Material material) {

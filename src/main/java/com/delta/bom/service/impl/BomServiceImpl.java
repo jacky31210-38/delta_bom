@@ -9,7 +9,6 @@ import com.delta.bom.entity.BomComponent;
 import com.delta.bom.entity.Material;
 import com.delta.bom.entity.SubstituteScenario;
 import com.delta.bom.entity.SubstituteScenarioItem;
-import com.delta.bom.exception.BomNotFoundException;
 import com.delta.bom.exception.BusinessException;
 import com.delta.bom.exception.ScenarioNotFoundException;
 import com.delta.bom.mapper.BomComponentMapper;
@@ -17,6 +16,7 @@ import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.mapper.SubstituteScenarioItemMapper;
 import com.delta.bom.mapper.SubstituteScenarioMapper;
 import com.delta.bom.service.BomService;
+import com.delta.bom.service.MaterialFinder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -41,6 +41,7 @@ public class BomServiceImpl implements BomService {
     private final MaterialMapper materialMapper;
     private final SubstituteScenarioMapper scenarioMapper;
     private final SubstituteScenarioItemMapper scenarioItemMapper;
+    private final MaterialFinder materialFinder;
 
     /**
      * 方案明細規則（比例/單價/替代料）與查詢當下輸入的數量，兩者結合後才是「這次要怎麼替換」的完整資訊。
@@ -65,12 +66,7 @@ public class BomServiceImpl implements BomService {
      * 各自的 @Cacheable 獨立作用，避免 Spring AOP 自呼叫無法攔截的問題。
      */
     private BomNodeResponse buildBomTree(String rootCode, List<SubstitutionInput> substitutions) {
-        Material rootMaterial = materialMapper.selectOne(
-            new LambdaQueryWrapper<Material>().eq(Material::getMaterialCode, rootCode)
-        );
-        if (rootMaterial == null) {
-            throw new BomNotFoundException(rootCode);
-        }
+        materialFinder.getOrThrow(rootCode);
 
         // 用遞迴 CTE 一次展開整棵樹涉及的所有「父物料→子物料」邊，避免 N+1 查詢
         List<BomComponent> edges = bomComponentMapper.selectSubtreeEdges(rootCode);
@@ -322,13 +318,7 @@ public class BomServiceImpl implements BomService {
         getScenarioOrThrow(request.getScenarioKey());
 
         // 確認主料存在（規則本身不記錄數量，數量是查詢當下才輸入，故不在此驗證 BOM 數量）
-        Material primary = materialMapper.selectOne(
-            new LambdaQueryWrapper<Material>()
-                .eq(Material::getMaterialCode, request.getPrimaryMaterialCode())
-        );
-        if (primary == null) {
-            throw new BomNotFoundException(request.getPrimaryMaterialCode());
-        }
+        materialFinder.getOrThrow(request.getPrimaryMaterialCode());
 
         BigDecimal ratio = request.getSubstituteRatio() != null ? request.getSubstituteRatio() : BigDecimal.ONE;
 

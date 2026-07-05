@@ -18,7 +18,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BomNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiResponse<Void> handleBomNotFound(BomNotFoundException ex) {
-        // ex.getMessage() 本身已含「查無物料或BOM：」前綴，不再重複加
         log.warn(ex.getMessage());
         return ApiResponse.error(404, ex.getMessage());
     }
