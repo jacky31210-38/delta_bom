@@ -22,6 +22,12 @@ public class BomComponentController {
 
     private final BomComponentService bomComponentService;
 
+    /**
+     * 新增一條「父物料包含子物料」的 BOM 組成關係。
+     *
+     * @param request 父物料編碼、子物料編碼、數量
+     * @return 新建立的組成關係內容
+     */
     @PostMapping
     @Operation(
         summary = "新增 BOM 組成關係",
@@ -33,12 +39,24 @@ public class BomComponentController {
         return ApiResponse.success(bomComponentService.createComponent(request));
     }
 
+    /**
+     * 列出系統中所有的 BOM 組成關係。
+     *
+     * @return 所有「父物料→子物料」組成關係的扁平清單
+     */
     @GetMapping
     @Operation(summary = "列出所有 BOM 組成關係", description = "回傳系統中所有「父物料→子物料」的組成關係扁平清單。")
     public ApiResponse<List<BomComponentResponse>> listAll() {
         return ApiResponse.success(bomComponentService.listAll());
     }
 
+    /**
+     * 更新一條組成關係的數量。
+     *
+     * @param id      組成關係 id
+     * @param request 新的數量，並帶上目前的 version 以偵測並發覆寫
+     * @return 更新後的組成關係內容
+     */
     @PutMapping("/{id}")
     @Operation(summary = "更新組成數量", description = "只允許調整數量；若要更換父物料或子物料，請刪除後重新建立。")
     public ApiResponse<BomComponentResponse> updateComponentQuantity(
@@ -48,6 +66,12 @@ public class BomComponentController {
         return ApiResponse.success(bomComponentService.updateComponentQuantity(id, request));
     }
 
+    /**
+     * 刪除一條組成關係，只移除這一條父子關係，子物料自己的組成不受影響。
+     *
+     * @param id 組成關係 id
+     * @return 空回應
+     */
     @DeleteMapping("/{id}")
     @Operation(
         summary = "刪除組成關係",

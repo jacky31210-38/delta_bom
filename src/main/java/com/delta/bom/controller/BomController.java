@@ -24,12 +24,24 @@ public class BomController {
     private final BomService bomService;
     private final BomComponentService bomComponentService;
 
+    /**
+     * 列出所有根節點物料，供前端下拉選單使用。
+     *
+     * @return 根節點物料清單
+     */
     @GetMapping("/roots")
     @Operation(summary = "列出所有根節點物料", description = "回傳目前所有 BOM 的根節點物料（materialCode/materialName），供前端根節點下拉選單使用。")
     public ApiResponse<List<RootMaterialResponse>> listRoots() {
         return ApiResponse.success(bomComponentService.listRoots());
     }
 
+    /**
+     * 查詢指定根節點的完整 BOM 樹狀結構。
+     *
+     * @param rootCode 根節點物料編碼，例如 PCB-CONTROL-V2
+     * @param request  這次查詢要套用的替代規則（可為 null／不帶 body，代表查詢原始 BOM）
+     * @return 展開後的樹狀結構
+     */
     @PostMapping("/{rootCode}/structure")
     @Operation(
         summary = "查詢 BOM 完整結構",
@@ -49,6 +61,13 @@ public class BomController {
         return ApiResponse.success(bomService.getBomStructure(rootCode, substitutions));
     }
 
+    /**
+     * 計算指定根節點的 BOM 總成本。
+     *
+     * @param rootCode 根節點物料編碼，例如 PCB-CONTROL-V2
+     * @param request  這次計算要套用的替代規則（可為 null／不帶 body，代表以原始 BOM 計算）
+     * @return 總成本與每一筆計價明細
+     */
     @PostMapping("/{rootCode}/cost")
     @Operation(
         summary = "計算 BOM 總成本",
@@ -69,6 +88,9 @@ public class BomController {
     /**
      * 依 (scenarioKey, primaryCode) 排序，讓 @Cacheable 的 key（依 List.toString()）
      * 在輸入順序不同但內容相同時，仍能命中同一筆快取。
+     *
+     * @param request 前端送來的原始查詢請求，可能為 null 或內含空的替代清單
+     * @return 排序後的替代規則清單；若沒有任何替代規則則回傳 null
      */
     private List<SubstitutionInput> normalize(BomQueryRequest request) {
         if (request == null || request.getSubstitutions() == null || request.getSubstitutions().isEmpty()) {

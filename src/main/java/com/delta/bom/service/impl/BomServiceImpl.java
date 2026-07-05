@@ -54,6 +54,9 @@ public class BomServiceImpl implements BomService {
     // 查詢 BOM 完整結構
     // ─────────────────────────────────────────────────────────────────
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Cacheable(value = "bomStructure", key = "#rootCode + '::' + (#substitutions != null ? #substitutions.toString() : 'NONE')")
     public BomNodeResponse getBomStructure(String rootCode, List<SubstitutionInput> substitutions) {
@@ -65,6 +68,10 @@ public class BomServiceImpl implements BomService {
      * 實際建樹邏輯（無快取）。
      * getBomStructure 與 calculateCost 皆呼叫此方法，
      * 各自的 @Cacheable 獨立作用，避免 Spring AOP 自呼叫無法攔截的問題。
+     *
+     * @param rootCode      根節點物料編碼
+     * @param substitutions 這次要套用的替代規則清單，null 或空清單代表不套用任何替代
+     * @return 展開後的樹狀結構
      */
     private BomNodeResponse buildBomTree(String rootCode, List<SubstitutionInput> substitutions) {
         materialFinder.getOrThrow(rootCode);
@@ -96,6 +103,19 @@ public class BomServiceImpl implements BomService {
         return buildNode(rootCode, BigDecimal.ONE, childrenMap, materialMap, substituteMap, new HashSet<>(), 0, null);
     }
 
+    /**
+     * 遞迴建出一個節點及其所有子孫節點。
+     *
+     * @param materialCode       目前節點的物料編碼
+     * @param quantity           目前節點在其直接父節點 BOM 裡的數量（邊本身定義的數量，不含祖先層的累乘）
+     * @param childrenMap        依父物料編碼分組的「父→子」組成關係，用來往下展開子節點
+     * @param materialMap        物料編碼對應到物料實體的批次查詢結果，用來取得名稱/單價
+     * @param substituteMap      物料編碼對應到已套用替代規則清單的對照表
+     * @param visitedInPath      目前路徑上已經走過的物料編碼，用來偵測循環依賴
+     * @param depth              目前節點的深度（根節點為 0）
+     * @param parentMaterialCode 直接父節點的物料編碼，根節點為 null
+     * @return 這個節點（含所有子孫節點）組成的樹狀結構
+     */
     private BomNodeResponse buildNode(String materialCode,
                                       BigDecimal quantity,
                                       Map<String, List<BomComponent>> childrenMap,
@@ -170,6 +190,9 @@ public class BomServiceImpl implements BomService {
     // BOM 成本計算
     // ─────────────────────────────────────────────────────────────────
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Cacheable(value = "bomCost", key = "#rootCode + '::' + (#substitutions != null ? #substitutions.toString() : 'NONE')")
     public BomCostResponse calculateCost(String rootCode, List<SubstitutionInput> substitutions) {
@@ -264,6 +287,9 @@ public class BomServiceImpl implements BomService {
     // 替代方案管理
     // ─────────────────────────────────────────────────────────────────
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -290,6 +316,9 @@ public class BomServiceImpl implements BomService {
         return toScenarioResponse(scenario, 0);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<ScenarioResponse> listScenarios() {
         List<SubstituteScenario> scenarios = scenarioMapper.selectList(null);
@@ -301,6 +330,9 @@ public class BomServiceImpl implements BomService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -318,6 +350,9 @@ public class BomServiceImpl implements BomService {
         log.info("刪除替代方案：{}", scenarioKey);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -378,6 +413,9 @@ public class BomServiceImpl implements BomService {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<ScenarioItemResponse> listScenarioItems(String scenarioKey) {
         getScenarioOrThrow(scenarioKey);
@@ -387,6 +425,9 @@ public class BomServiceImpl implements BomService {
         ));
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<ScenarioItemResponse> listAllScenarioItems() {
         return toScenarioItemResponses(scenarioItemMapper.selectList(null));
@@ -394,6 +435,9 @@ public class BomServiceImpl implements BomService {
 
     /**
      * 批次解析一批方案明細規則各自的替代料名稱/單價，避免逐筆查詢造成 N+1。
+     *
+     * @param items 要轉換的方案明細規則清單
+     * @return 轉換後的回應內容清單
      */
     private List<ScenarioItemResponse> toScenarioItemResponses(List<SubstituteScenarioItem> items) {
         Set<String> substituteCodes = items.stream()
@@ -411,6 +455,9 @@ public class BomServiceImpl implements BomService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -436,6 +483,9 @@ public class BomServiceImpl implements BomService {
      * 對照到方案明細規則（比例/單價/替代料），組成 primaryCode -> 已套用替代 的對照表。
      * 傳入的每個 scenarioKey、每個 (scenarioKey, primaryCode) 規則都必須存在，找不到就直接失敗，
      * 不會靜默忽略打錯字或不存在的輸入。
+     *
+     * @param substitutions 使用者這次查詢輸入的替代規則清單，null 或空清單代表沒有套用任何替代
+     * @return 主料編碼對應到「已套用替代規則＋數量」清單的對照表
      */
     private Map<String, List<AppliedSubstitution>> resolveSubstitutions(List<SubstitutionInput> substitutions) {
         if (substitutions == null || substitutions.isEmpty()) {
@@ -462,6 +512,12 @@ public class BomServiceImpl implements BomService {
         return result;
     }
 
+    /**
+     * 依方案 key 查詢方案，查無資料時直接丟例外。
+     *
+     * @param scenarioKey 方案 key
+     * @return 查到的方案
+     */
     private SubstituteScenario getScenarioOrThrow(String scenarioKey) {
         SubstituteScenario scenario = scenarioMapper.selectOne(
             new LambdaQueryWrapper<SubstituteScenario>()
@@ -473,6 +529,13 @@ public class BomServiceImpl implements BomService {
         return scenario;
     }
 
+    /**
+     * 把 SubstituteScenario 實體轉成對外的回應格式。
+     *
+     * @param scenario  方案實體
+     * @param itemCount 這個方案底下目前有幾筆替代規則
+     * @return 方案回應內容
+     */
     private ScenarioResponse toScenarioResponse(SubstituteScenario scenario, long itemCount) {
         return ScenarioResponse.builder()
             .id(scenario.getId())
@@ -486,6 +549,13 @@ public class BomServiceImpl implements BomService {
             .build();
     }
 
+    /**
+     * 把 SubstituteScenarioItem 實體（加上即時查到的替代料資訊）轉成對外的回應格式。
+     *
+     * @param item               方案明細規則實體
+     * @param substituteMaterial 這筆規則對應的替代料，可能為 null（物料主檔資料異常時的防禦）
+     * @return 方案明細回應內容
+     */
     private ScenarioItemResponse toScenarioItemResponse(SubstituteScenarioItem item, Material substituteMaterial) {
         return ScenarioItemResponse.builder()
             .id(item.getId())

@@ -34,6 +34,9 @@ public class MaterialServiceImpl implements MaterialService {
     private final SubstituteScenarioItemMapper scenarioItemMapper;
     private final MaterialFinder materialFinder;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     public MaterialResponse createMaterial(MaterialRequest request) {
@@ -55,6 +58,9 @@ public class MaterialServiceImpl implements MaterialService {
         return toResponse(material);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<MaterialResponse> listMaterials() {
         return materialMapper.selectList(null).stream()
@@ -62,6 +68,9 @@ public class MaterialServiceImpl implements MaterialService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -84,6 +93,9 @@ public class MaterialServiceImpl implements MaterialService {
         return toResponse(material);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     public void deleteMaterial(String materialCode) {
@@ -117,6 +129,12 @@ public class MaterialServiceImpl implements MaterialService {
         log.info("刪除物料：{}", materialCode);
     }
 
+    /**
+     * 把 Material 實體轉成對外的回應格式。
+     *
+     * @param material 物料實體
+     * @return 物料回應內容
+     */
     private MaterialResponse toResponse(Material material) {
         return MaterialResponse.builder()
             .id(material.getId())

@@ -34,6 +34,9 @@ public class BomComponentServiceImpl implements BomComponentService {
     private final MaterialMapper materialMapper;
     private final MaterialFinder materialFinder;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -73,6 +76,9 @@ public class BomComponentServiceImpl implements BomComponentService {
      * 從 childCode 出發展開它自己的組成（BFS），若展開過程中又繞回 parentCode，
      * 代表加入「parentCode 包含 childCode」這條邊後會形成循環（parentCode 的下游又會包含 parentCode 自己）。
      * 寫入時就直接擋下，不用等查詢/展開 BOM 樹時才發現。
+     *
+     * @param parentCode 準備要新增的組成關係的父物料編碼
+     * @param childCode  準備要新增的組成關係的子物料編碼
      */
     private void checkNoCycle(String parentCode, String childCode) {
         if (parentCode.equals(childCode)) {
@@ -103,6 +109,9 @@ public class BomComponentServiceImpl implements BomComponentService {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<BomComponentResponse> listAll() {
         List<BomComponent> all = bomComponentMapper.selectList(null);
@@ -112,6 +121,9 @@ public class BomComponentServiceImpl implements BomComponentService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -136,6 +148,9 @@ public class BomComponentServiceImpl implements BomComponentService {
         return toResponse(component, parent, child);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     @Caching(evict = {
@@ -152,6 +167,9 @@ public class BomComponentServiceImpl implements BomComponentService {
         log.info("刪除 BOM 組成：{} 不再包含 {}", component.getParentMaterialCode(), component.getChildMaterialCode());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<RootMaterialResponse> listRoots() {
         List<BomComponent> all = bomComponentMapper.selectList(null);
@@ -178,6 +196,12 @@ public class BomComponentServiceImpl implements BomComponentService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * 批次查出一批組成關係涉及的所有物料，避免逐筆查詢造成 N+1。
+     *
+     * @param components 要解析物料資訊的組成關係清單
+     * @return 物料編碼對應到物料實體的對照表
+     */
     private Map<String, Material> loadMaterialMap(List<BomComponent> components) {
         Set<String> codes = components.stream()
             .flatMap(c -> java.util.stream.Stream.of(c.getParentMaterialCode(), c.getChildMaterialCode()))
@@ -191,6 +215,14 @@ public class BomComponentServiceImpl implements BomComponentService {
             .collect(Collectors.toMap(Material::getMaterialCode, m -> m));
     }
 
+    /**
+     * 把 BomComponent 實體（加上父/子物料資訊）轉成對外的回應格式。
+     *
+     * @param component 組成關係實體
+     * @param parent    父物料，可能為 null（物料主檔資料異常時的防禦）
+     * @param child     子物料，可能為 null
+     * @return 組成關係回應內容
+     */
     private BomComponentResponse toResponse(BomComponent component, Material parent, Material child) {
         return BomComponentResponse.builder()
             .id(component.getId())

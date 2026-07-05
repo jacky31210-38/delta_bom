@@ -17,6 +17,13 @@ public class MaterialFinder {
 
     private final MaterialMapper materialMapper;
 
+    /**
+     * 依物料編碼查詢物料，查無資料時直接丟例外，
+     * 取代散落在各個 Service 裡重複的「查詢後手動判斷 null」邏輯。
+     *
+     * @param materialCode 物料編碼
+     * @return 查到的物料
+     */
     public Material getOrThrow(String materialCode) {
         Material material = materialMapper.selectOne(
             new LambdaQueryWrapper<Material>().eq(Material::getMaterialCode, materialCode)
