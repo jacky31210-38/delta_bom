@@ -8,6 +8,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.stream.Collectors;
 
@@ -44,6 +45,15 @@ public class GlobalExceptionHandler {
             .collect(Collectors.joining("；"));
         log.warn("請求參數驗證失敗：{}", message);
         return ApiResponse.error(400, message);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse<Void> handleNoResourceFound(NoResourceFoundException ex) {
+        // 瀏覽器打開頁面時常會自動要 favicon.ico 之類的靜態資源，找不到是正常情況，
+        // 不是系統出錯，用 debug 記錄即可，不用當成未預期例外洗版 error log
+        log.debug("請求的靜態資源不存在：{}", ex.getMessage());
+        return ApiResponse.error(404, "找不到資源");
     }
 
     @ExceptionHandler(Exception.class)
