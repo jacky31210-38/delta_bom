@@ -70,19 +70,22 @@ public class BomServiceImpl implements BomService {
 
         // 用遞迴 CTE 一次展開整棵樹涉及的所有「父物料→子物料」邊，避免 N+1 查詢
         List<BomComponent> edges = bomComponentMapper.selectSubtreeEdges(rootCode);
+        Map<String, List<AppliedSubstitution>> substituteMap = resolveSubstitutions(substitutions);
 
+        // 替代料的名稱/單價要即時查 material，所以也要納入這次批次查詢的物料編碼範圍
         Set<String> materialCodes = new HashSet<>();
         materialCodes.add(rootCode);
         edges.forEach(e -> {
             materialCodes.add(e.getParentMaterialCode());
             materialCodes.add(e.getChildMaterialCode());
         });
+        substituteMap.values().forEach(list ->
+            list.forEach(a -> materialCodes.add(a.rule().getSubstituteCode())));
+
         Map<String, Material> materialMap = materialMapper.selectList(
                 new LambdaQueryWrapper<Material>().in(Material::getMaterialCode, materialCodes)
             ).stream()
             .collect(Collectors.toMap(Material::getMaterialCode, m -> m));
-
-        Map<String, List<AppliedSubstitution>> substituteMap = resolveSubstitutions(substitutions);
 
         // 以 parentMaterialCode 分組建立父→子映射
         Map<String, List<BomComponent>> childrenMap = edges.stream()
@@ -124,15 +127,19 @@ public class BomServiceImpl implements BomService {
 
         boolean hasSubstitute = !matches.isEmpty();
         List<SubstituteInfoResponse> substituteInfos = matches.stream()
-            .map(a -> SubstituteInfoResponse.builder()
-                .scenarioKey(a.rule().getScenarioKey())
-                .substituteCode(a.rule().getSubstituteCode())
-                .substituteName(a.rule().getSubstituteName())
-                .substituteQty(a.qty())
-                .substituteRatio(a.rule().getSubstituteRatio())
-                .unitPrice(a.rule().getUnitPrice())
-                .reason(a.rule().getReason())
-                .build())
+            .map(a -> {
+                // 替代料的名稱/單價一律即時查 material，避免物料主檔改價後這裡沒同步更新
+                Material substituteMaterial = materialMap.get(a.rule().getSubstituteCode());
+                return SubstituteInfoResponse.builder()
+                    .scenarioKey(a.rule().getScenarioKey())
+                    .substituteCode(a.rule().getSubstituteCode())
+                    .substituteName(substituteMaterial != null ? substituteMaterial.getMaterialName() : null)
+                    .substituteQty(a.qty())
+                    .substituteRatio(a.rule().getSubstituteRatio())
+                    .unitPrice(substituteMaterial != null ? substituteMaterial.getUnitPrice() : null)
+                    .reason(a.rule().getReason())
+                    .build();
+            })
             .collect(Collectors.toList());
 
         // 一顆子物料的組成（例如 POWER-MODULE 底下有哪些子件）只定義一次，
@@ -207,8 +214,10 @@ public class BomServiceImpl implements BomService {
         for (SubstituteInfoResponse info : node.getSubstituteInfos()) {
             coveredQty = coveredQty.add(info.getSubstituteQty());
             BigDecimal ratio = info.getSubstituteRatio() != null ? info.getSubstituteRatio() : BigDecimal.ONE;
+            // 替代料單價來自物料主檔，理論上寫入時已檢查過必須有單價，這裡仍防禦性地擋 null，避免物料事後被改成沒有單價
+            BigDecimal substitutePrice = info.getUnitPrice() != null ? info.getUnitPrice() : BigDecimal.ZERO;
             BigDecimal subEffectiveQty = info.getSubstituteQty().multiply(parentMultiplier).multiply(ratio);
-            BigDecimal subCost = subEffectiveQty.multiply(info.getUnitPrice());
+            BigDecimal subCost = subEffectiveQty.multiply(substitutePrice);
             total = total.add(subCost);
 
             details.add(BomCostResponse.CostDetailItem.builder()
@@ -219,7 +228,7 @@ public class BomServiceImpl implements BomService {
                 .scenarioKey(info.getScenarioKey())
                 .bomQuantity(info.getSubstituteQty())
                 .effectiveQty(subEffectiveQty)
-                .unitPrice(info.getUnitPrice())
+                .unitPrice(substitutePrice)
                 .subtotal(subCost.setScale(4, RoundingMode.HALF_UP))
                 .substituted(true)
                 .build());
@@ -320,6 +329,13 @@ public class BomServiceImpl implements BomService {
         // 確認主料存在（規則本身不記錄數量，數量是查詢當下才輸入，故不在此驗證 BOM 數量）
         materialFinder.getOrThrow(request.getPrimaryMaterialCode());
 
+        // 替代料的名稱/單價一律即時查 material，這裡順便確認替代料存在、且必須已設定單價，
+        // 否則之後算成本時無從得知該用多少單價
+        Material substituteMaterial = materialFinder.getOrThrow(request.getSubstituteMaterialCode());
+        if (substituteMaterial.getUnitPrice() == null) {
+            throw new BusinessException("替代料 " + request.getSubstituteMaterialCode() + " 尚未在物料主檔設定單價，無法作為替代選項");
+        }
+
         BigDecimal ratio = request.getSubstituteRatio() != null ? request.getSubstituteRatio() : BigDecimal.ONE;
 
         // UPSERT：同一方案內，有則更新、無則新增
@@ -334,43 +350,54 @@ public class BomServiceImpl implements BomService {
                 .scenarioKey(request.getScenarioKey())
                 .primaryCode(request.getPrimaryMaterialCode())
                 .substituteCode(request.getSubstituteMaterialCode())
-                .substituteName(request.getSubstituteMaterialName())
                 .reason(request.getReason())
                 .substituteRatio(ratio)
-                .unitPrice(request.getUnitPrice())
                 .build();
             scenarioItemMapper.insert(item);
             log.info("方案 {} 新增替代規則：{} → {}", request.getScenarioKey(),
                 request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
-            return toScenarioItemResponse(item);
+            return toScenarioItemResponse(item, substituteMaterial);
         } else {
             existing.setSubstituteCode(request.getSubstituteMaterialCode());
-            existing.setSubstituteName(request.getSubstituteMaterialName());
             existing.setReason(request.getReason());
             existing.setSubstituteRatio(ratio);
-            existing.setUnitPrice(request.getUnitPrice());
             scenarioItemMapper.updateById(existing);
             log.info("方案 {} 更新替代規則：{} → {}", request.getScenarioKey(),
                 request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
-            return toScenarioItemResponse(existing);
+            return toScenarioItemResponse(existing, substituteMaterial);
         }
     }
 
     @Override
     public List<ScenarioItemResponse> listScenarioItems(String scenarioKey) {
         getScenarioOrThrow(scenarioKey);
-        return scenarioItemMapper.selectList(
-                new LambdaQueryWrapper<SubstituteScenarioItem>()
-                    .eq(SubstituteScenarioItem::getScenarioKey, scenarioKey)
-            ).stream()
-            .map(this::toScenarioItemResponse)
-            .collect(Collectors.toList());
+        return toScenarioItemResponses(scenarioItemMapper.selectList(
+            new LambdaQueryWrapper<SubstituteScenarioItem>()
+                .eq(SubstituteScenarioItem::getScenarioKey, scenarioKey)
+        ));
     }
 
     @Override
     public List<ScenarioItemResponse> listAllScenarioItems() {
-        return scenarioItemMapper.selectList(null).stream()
-            .map(this::toScenarioItemResponse)
+        return toScenarioItemResponses(scenarioItemMapper.selectList(null));
+    }
+
+    /**
+     * 批次解析一批方案明細規則各自的替代料名稱/單價，避免逐筆查詢造成 N+1。
+     */
+    private List<ScenarioItemResponse> toScenarioItemResponses(List<SubstituteScenarioItem> items) {
+        Set<String> substituteCodes = items.stream()
+            .map(SubstituteScenarioItem::getSubstituteCode)
+            .collect(Collectors.toSet());
+        Map<String, Material> materialMap = substituteCodes.isEmpty()
+            ? Collections.emptyMap()
+            : materialMapper.selectList(
+                    new LambdaQueryWrapper<Material>().in(Material::getMaterialCode, substituteCodes)
+                ).stream()
+                .collect(Collectors.toMap(Material::getMaterialCode, m -> m));
+
+        return items.stream()
+            .map(item -> toScenarioItemResponse(item, materialMap.get(item.getSubstituteCode())))
             .collect(Collectors.toList());
     }
 
@@ -448,16 +475,16 @@ public class BomServiceImpl implements BomService {
             .build();
     }
 
-    private ScenarioItemResponse toScenarioItemResponse(SubstituteScenarioItem item) {
+    private ScenarioItemResponse toScenarioItemResponse(SubstituteScenarioItem item, Material substituteMaterial) {
         return ScenarioItemResponse.builder()
             .id(item.getId())
             .scenarioKey(item.getScenarioKey())
             .primaryCode(item.getPrimaryCode())
             .substituteCode(item.getSubstituteCode())
-            .substituteName(item.getSubstituteName())
+            .substituteName(substituteMaterial != null ? substituteMaterial.getMaterialName() : null)
             .reason(item.getReason())
             .substituteRatio(item.getSubstituteRatio())
-            .unitPrice(item.getUnitPrice())
+            .unitPrice(substituteMaterial != null ? substituteMaterial.getUnitPrice() : null)
             .version(item.getVersion())
             .createdAt(item.getCreatedAt())
             .updatedAt(item.getUpdatedAt())

@@ -2,7 +2,6 @@ package com.delta.bom.dto.request;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -19,15 +18,9 @@ public class ScenarioItemRequest {
     @NotBlank(message = "替代料編碼不可為空")
     private String substituteMaterialCode;
 
-    private String substituteMaterialName;
-
     private String reason;
 
     // 替代比例：1 顆主料對應幾顆替代料，未填預設 1（1:1 替換）
     @DecimalMin(value = "0.0001", message = "替代比例必須大於 0")
     private BigDecimal substituteRatio;
-
-    @NotNull(message = "替代料單價不可為空")
-    @DecimalMin(value = "0.0", inclusive = false, message = "替代料單價必須大於 0")
-    private BigDecimal unitPrice;
 }

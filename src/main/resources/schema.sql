@@ -44,19 +44,18 @@ CREATE TABLE substitute_scenario (
 );
 
 -- 替代方案明細：同一方案內，一顆主料只能對應一筆替代規則。
--- 只描述「哪個料可以換哪個料、換算比例與單價」的工程事實，不記錄數量——
+-- 只描述「哪個料可以換哪個料、換算比例」這種替代關係本身的事實，不記錄數量——
 -- 數量是查詢/計算成本當下才決定的動態輸入（同一顆主料可被多個方案的規則同時套用不同數量）。
--- primary_code / substitute_code 語意上一直都是物料層級的事實，正式改成 FK 指向 material。
+-- primary_code / substitute_code 皆為 FK 指向 material，兩者的名稱與單價一律即時查 material 取得，
+-- 不在這裡另存一份，避免物料主檔改價後，方案明細裡的舊資料沒有同步更新。
 -- substitute_ratio：替代比例，1 顆主料對應幾顆替代料（預設 1，即 1:1 替換）。
 CREATE TABLE substitute_scenario_item (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     scenario_key    VARCHAR(64)    NOT NULL,
     primary_code    VARCHAR(64)    NOT NULL,
     substitute_code VARCHAR(64)    NOT NULL,
-    substitute_name VARCHAR(128),
     reason          VARCHAR(256),
     substitute_ratio DECIMAL(12, 4) NOT NULL DEFAULT 1,
-    unit_price      DECIMAL(12, 4) NOT NULL,
     version         INT            DEFAULT 0,
     created_at      DATETIME       DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME       DEFAULT CURRENT_TIMESTAMP,

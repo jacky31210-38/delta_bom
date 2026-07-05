@@ -23,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,7 +60,7 @@ class BomServiceImplTest {
      * 只有實際會展開這棵樹的測試才呼叫，避免其他測試背著用不到的 stub
      * （Mockito 嚴格模式會把沒被用到的 stub 視為錯誤，逼你的 arrange 跟實際行為對齊）。
      */
-    private void stubRootTree() {
+    private void stubRootTree(Material... extraMaterials) {
         Material root = Material.builder().materialCode("ROOT").materialName("Root").build();
         Material childA = Material.builder().materialCode("CHILD_A").materialName("Child A").build();
         Material leaf = Material.builder().materialCode("LEAF").materialName("Leaf").unitPrice(new BigDecimal("10.00")).build();
@@ -70,7 +71,10 @@ class BomServiceImplTest {
             .parentMaterialCode("CHILD_A").childMaterialCode("LEAF").quantity(new BigDecimal("3")).build();
 
         when(bomComponentMapper.selectSubtreeEdges("ROOT")).thenReturn(List.of(rootToChildA, childAToLeaf));
-        when(materialMapper.selectList(any())).thenReturn(List.of(root, childA, leaf));
+
+        List<Material> materials = new ArrayList<>(List.of(root, childA, leaf));
+        materials.addAll(List.of(extraMaterials));
+        when(materialMapper.selectList(any())).thenReturn(materials);
     }
 
     @Test
@@ -84,11 +88,12 @@ class BomServiceImplTest {
 
     @Test
     void calculateCost_withPartialSubstitution_splitsCostBetweenSubstituteAndOriginal() {
-        stubRootTree();
+        Material altMaterial = Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("7.00")).build();
+        stubRootTree(altMaterial);
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         SubstituteScenarioItem rule = SubstituteScenarioItem.builder()
-            .scenarioKey("S1").primaryCode("LEAF").substituteCode("ALT").substituteName("替代葉件")
-            .substituteRatio(new BigDecimal("2")).unitPrice(new BigDecimal("7.00")).build();
+            .scenarioKey("S1").primaryCode("LEAF").substituteCode("ALT")
+            .substituteRatio(new BigDecimal("2")).build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
         when(scenarioItemMapper.selectOne(any())).thenReturn(rule);
 
@@ -112,7 +117,7 @@ class BomServiceImplTest {
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         SubstituteScenarioItem rule = SubstituteScenarioItem.builder()
             .scenarioKey("S1").primaryCode("LEAF").substituteCode("ALT")
-            .substituteRatio(BigDecimal.ONE).unitPrice(BigDecimal.ONE).build();
+            .substituteRatio(BigDecimal.ONE).build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
         when(scenarioItemMapper.selectOne(any())).thenReturn(rule);
 
@@ -128,7 +133,7 @@ class BomServiceImplTest {
 
     @Test
     void calculateCost_scenarioKeyNotFound_throwsScenarioNotFoundException() {
-        stubRootTree();
+        // 方案解析發生在展開 BOM 結構之前，不需要 stub 任何 BOM/物料資料
         when(scenarioMapper.selectOne(any())).thenReturn(null);
 
         SubstitutionInput input = new SubstitutionInput();
@@ -168,17 +173,38 @@ class BomServiceImplTest {
     void upsertScenarioItem_createsNewRule_whenNoneExists() {
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
+        when(materialFinder.getOrThrow("ALT")).thenReturn(
+            Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("5")).build());
         when(scenarioItemMapper.selectOne(any())).thenReturn(null);
 
         ScenarioItemRequest request = new ScenarioItemRequest();
         request.setScenarioKey("S1");
         request.setPrimaryMaterialCode("LEAF");
         request.setSubstituteMaterialCode("ALT");
-        request.setUnitPrice(new BigDecimal("5"));
 
         ScenarioItemResponse response = bomService.upsertScenarioItem(request);
 
         assertThat(response.getSubstituteRatio()).isEqualByComparingTo(BigDecimal.ONE); // 未填比例，預設 1
+        assertThat(response.getUnitPrice()).isEqualByComparingTo("5"); // 單價即時從物料主檔取得，不是自己存的
+    }
+
+    @Test
+    void upsertScenarioItem_substituteMaterialHasNoPrice_throwsBusinessException() {
+        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
+        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
+        when(materialFinder.getOrThrow("ALT")).thenReturn(
+            Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(null).build());
+
+        ScenarioItemRequest request = new ScenarioItemRequest();
+        request.setScenarioKey("S1");
+        request.setPrimaryMaterialCode("LEAF");
+        request.setSubstituteMaterialCode("ALT");
+
+        assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("尚未在物料主檔設定單價");
     }
 
     @Test
@@ -191,7 +217,6 @@ class BomServiceImplTest {
         request.setScenarioKey("S1");
         request.setPrimaryMaterialCode("MISSING");
         request.setSubstituteMaterialCode("ALT");
-        request.setUnitPrice(BigDecimal.ONE);
 
         assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
             .isInstanceOf(BomNotFoundException.class);
