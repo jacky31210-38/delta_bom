@@ -44,15 +44,23 @@
 
 ### 環境需求
 - JDK 17 以上
-- Maven 3.8 以上（需能連線下載相依套件，或本機已有對應套件快取）
+- **不需要事先安裝 Maven**：專案內含 Maven Wrapper（`mvnw` / `mvnw.cmd`），會自動下載對應版本的 Maven，第一次執行需要能連線下載
 
 ### 啟動專案
 
-```bash
-mvn spring-boot:run
+Windows：
+
+```bat
+mvnw.cmd spring-boot:run
 ```
 
 或直接執行專案根目錄下的 `run.bat`。
+
+Linux／Mac：
+
+```bash
+./mvnw spring-boot:run
+```
 
 啟動後可透過以下網址存取：
 
@@ -117,8 +125,10 @@ H2 主控台登入資訊：
 ## 測試
 
 ```bash
-mvn test
+./mvnw test
 ```
+
+（Windows 用 `mvnw.cmd test`）
 
 涵蓋成本計算的跨層數量累乘與替代比例換算、BOM 組成的循環依賴與重複邊防呆、物料刪除的引用檢查等核心邏輯的單元測試。
 
