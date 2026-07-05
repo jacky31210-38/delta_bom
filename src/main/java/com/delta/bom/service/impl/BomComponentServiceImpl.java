@@ -194,6 +194,7 @@ public class BomComponentServiceImpl implements BomComponentService {
             .childMaterialCode(component.getChildMaterialCode())
             .childMaterialName(child != null ? child.getMaterialName() : null)
             .quantity(component.getQuantity())
+            .version(component.getVersion())
             .createdAt(component.getCreatedAt())
             .updatedAt(component.getUpdatedAt())
             .build();

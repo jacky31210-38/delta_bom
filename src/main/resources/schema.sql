@@ -24,6 +24,7 @@ CREATE TABLE bom_component (
     parent_material_code  VARCHAR(64)    NOT NULL,
     child_material_code   VARCHAR(64)    NOT NULL,
     quantity              DECIMAL(12, 4) NOT NULL DEFAULT 1,
+    version               INT            DEFAULT 0,
     created_at            DATETIME       DEFAULT CURRENT_TIMESTAMP,
     updated_at            DATETIME       DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_bom_component UNIQUE (parent_material_code, child_material_code),

@@ -20,6 +20,7 @@ public class BomComponentResponse {
     private String childMaterialCode;
     private String childMaterialName;
     private BigDecimal quantity;
+    private Integer version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

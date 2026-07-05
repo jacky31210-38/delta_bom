@@ -1,6 +1,7 @@
 package com.delta.bom.service.impl;
 
 import com.delta.bom.dto.request.BomComponentCreateRequest;
+import com.delta.bom.dto.request.BomComponentUpdateRequest;
 import com.delta.bom.dto.response.BomComponentResponse;
 import com.delta.bom.dto.response.RootMaterialResponse;
 import com.delta.bom.entity.BomComponent;
@@ -22,6 +23,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -127,6 +129,24 @@ class BomComponentServiceImplTest {
 
         assertThatThrownBy(() -> bomComponentService.createComponent(request))
             .isInstanceOf(BomNotFoundException.class);
+    }
+
+    @Test
+    void updateComponentQuantity_success_updatesQuantityAndReturnsResponse() {
+        BomComponent existing = BomComponent.builder()
+            .id(1L).parentMaterialCode("A").childMaterialCode("B")
+            .quantity(BigDecimal.ONE).version(0).build();
+        when(bomComponentMapper.selectById(1L)).thenReturn(existing);
+        when(materialFinder.getOrThrow("A")).thenReturn(Material.builder().materialCode("A").materialName("A").build());
+        when(materialFinder.getOrThrow("B")).thenReturn(Material.builder().materialCode("B").materialName("B").build());
+
+        BomComponentUpdateRequest request = new BomComponentUpdateRequest();
+        request.setQuantity(new BigDecimal("5"));
+
+        BomComponentResponse response = bomComponentService.updateComponentQuantity(1L, request);
+
+        assertThat(response.getQuantity()).isEqualByComparingTo("5");
+        verify(bomComponentMapper).updateById(existing);
     }
 
     @Test
