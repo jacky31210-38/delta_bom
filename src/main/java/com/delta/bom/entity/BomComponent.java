@@ -18,20 +18,28 @@ import java.time.LocalDateTime;
 @TableName("bom_component")
 public class BomComponent {
 
+    /** 資料庫自增主鍵 */
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 父物料編碼（BOM 裡包含子物料的那一方） */
     private String parentMaterialCode;
+    /** 子物料編碼（被包含的那一方） */
     private String childMaterialCode;
+    /** 父物料的 BOM 裡，這個子物料的用量 */
     private BigDecimal quantity;
 
-    // MyBatis-Plus 樂觀鎖：updateById 時自動對比並遞增 version，防止並發覆寫
+    /**
+     * MyBatis-Plus 樂觀鎖：updateById 時自動對比並遞增 version，防止並發覆寫
+     */
     @Version
     private Integer version;
 
+    /** 建立時間，新增時自動填入 */
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
+    /** 最後更新時間，新增/更新時自動填入 */
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }
