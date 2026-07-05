@@ -8,6 +8,7 @@ import com.delta.bom.entity.BomComponent;
 import com.delta.bom.entity.Material;
 import com.delta.bom.exception.BomNotFoundException;
 import com.delta.bom.exception.BusinessException;
+import com.delta.bom.exception.OptimisticLockConflictException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.service.MaterialFinder;
@@ -137,16 +138,36 @@ class BomComponentServiceImplTest {
             .id(1L).parentMaterialCode("A").childMaterialCode("B")
             .quantity(BigDecimal.ONE).version(0).build();
         when(bomComponentMapper.selectById(1L)).thenReturn(existing);
+        when(bomComponentMapper.updateById(existing)).thenReturn(1);
         when(materialFinder.getOrThrow("A")).thenReturn(Material.builder().materialCode("A").materialName("A").build());
         when(materialFinder.getOrThrow("B")).thenReturn(Material.builder().materialCode("B").materialName("B").build());
 
         BomComponentUpdateRequest request = new BomComponentUpdateRequest();
         request.setQuantity(new BigDecimal("5"));
+        request.setVersion(0);
 
         BomComponentResponse response = bomComponentService.updateComponentQuantity(1L, request);
 
         assertThat(response.getQuantity()).isEqualByComparingTo("5");
         verify(bomComponentMapper).updateById(existing);
+    }
+
+    @Test
+    void updateComponentQuantity_versionConflict_throwsOptimisticLockConflictException() {
+        BomComponent existing = BomComponent.builder()
+            .id(1L).parentMaterialCode("A").childMaterialCode("B")
+            .quantity(BigDecimal.ONE).version(0).build();
+        when(bomComponentMapper.selectById(1L)).thenReturn(existing);
+        // 模擬別人已經搶先更新過，version 已經不是 0 了：WHERE version = 0 比對不到任何一列，回傳受影響筆數 0
+        when(bomComponentMapper.updateById(existing)).thenReturn(0);
+
+        BomComponentUpdateRequest request = new BomComponentUpdateRequest();
+        request.setQuantity(new BigDecimal("5"));
+        request.setVersion(0);
+
+        assertThatThrownBy(() -> bomComponentService.updateComponentQuantity(1L, request))
+            .isInstanceOf(OptimisticLockConflictException.class)
+            .hasMessageContaining("已被其他人修改");
     }
 
     @Test

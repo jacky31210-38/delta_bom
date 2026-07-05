@@ -10,6 +10,7 @@ import com.delta.bom.entity.Material;
 import com.delta.bom.entity.SubstituteScenario;
 import com.delta.bom.entity.SubstituteScenarioItem;
 import com.delta.bom.exception.BusinessException;
+import com.delta.bom.exception.OptimisticLockConflictException;
 import com.delta.bom.exception.ScenarioNotFoundException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
@@ -358,10 +359,19 @@ public class BomServiceImpl implements BomService {
                 request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
             return toScenarioItemResponse(item, substituteMaterial);
         } else {
+            if (request.getVersion() == null) {
+                throw new BusinessException("更新既有替代規則時必須提供 version，避免覆蓋他人異動");
+            }
             existing.setSubstituteCode(request.getSubstituteMaterialCode());
             existing.setReason(request.getReason());
             existing.setSubstituteRatio(ratio);
-            scenarioItemMapper.updateById(existing);
+            // 用前端傳回來的版本（而非剛剛查到的最新版本）去比對，樂觀鎖才會在版本不符時真的擋下來
+            existing.setVersion(request.getVersion());
+            if (scenarioItemMapper.updateById(existing) == 0) {
+                throw new OptimisticLockConflictException(String.format(
+                    "方案 %s 對主料 %s 的替代規則已被其他人修改，請重新整理後再試",
+                    request.getScenarioKey(), request.getPrimaryMaterialCode()));
+            }
             log.info("方案 {} 更新替代規則：{} → {}", request.getScenarioKey(),
                 request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
             return toScenarioItemResponse(existing, substituteMaterial);
@@ -470,6 +480,7 @@ public class BomServiceImpl implements BomService {
             .scenarioName(scenario.getScenarioName())
             .description(scenario.getDescription())
             .itemCount(itemCount)
+            .version(scenario.getVersion())
             .createdAt(scenario.getCreatedAt())
             .updatedAt(scenario.getUpdatedAt())
             .build();

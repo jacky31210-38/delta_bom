@@ -4,6 +4,7 @@ import com.delta.bom.dto.request.MaterialRequest;
 import com.delta.bom.dto.response.MaterialResponse;
 import com.delta.bom.entity.Material;
 import com.delta.bom.exception.BusinessException;
+import com.delta.bom.exception.OptimisticLockConflictException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.mapper.SubstituteScenarioItemMapper;
@@ -66,6 +67,52 @@ class MaterialServiceImplTest {
             .isInstanceOf(BusinessException.class)
             .hasMessageContaining("已存在");
         verify(materialMapper, never()).insert(any(Material.class));
+    }
+
+    @Test
+    void updateMaterial_success_whenVersionMatches() {
+        Material existing = Material.builder().materialCode("IC-MCU").materialName("舊名稱").version(0).build();
+        when(materialFinder.getOrThrow("IC-MCU")).thenReturn(existing);
+        when(materialMapper.updateById(existing)).thenReturn(1);
+
+        MaterialRequest request = new MaterialRequest();
+        request.setMaterialCode("IC-MCU");
+        request.setMaterialName("新名稱");
+        request.setVersion(0);
+
+        MaterialResponse response = materialService.updateMaterial("IC-MCU", request);
+
+        assertThat(response.getMaterialName()).isEqualTo("新名稱");
+    }
+
+    @Test
+    void updateMaterial_withoutVersion_throwsBusinessException() {
+        when(materialFinder.getOrThrow("IC-MCU")).thenReturn(
+            Material.builder().materialCode("IC-MCU").materialName("舊名稱").version(0).build());
+
+        MaterialRequest request = new MaterialRequest();
+        request.setMaterialCode("IC-MCU");
+        request.setMaterialName("新名稱");
+
+        assertThatThrownBy(() -> materialService.updateMaterial("IC-MCU", request))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("必須提供 version");
+    }
+
+    @Test
+    void updateMaterial_versionConflict_throwsOptimisticLockConflictException() {
+        Material existing = Material.builder().materialCode("IC-MCU").materialName("舊名稱").version(0).build();
+        when(materialFinder.getOrThrow("IC-MCU")).thenReturn(existing);
+        when(materialMapper.updateById(existing)).thenReturn(0);
+
+        MaterialRequest request = new MaterialRequest();
+        request.setMaterialCode("IC-MCU");
+        request.setMaterialName("新名稱");
+        request.setVersion(0);
+
+        assertThatThrownBy(() -> materialService.updateMaterial("IC-MCU", request))
+            .isInstanceOf(OptimisticLockConflictException.class)
+            .hasMessageContaining("已被其他人修改");
     }
 
     @Test

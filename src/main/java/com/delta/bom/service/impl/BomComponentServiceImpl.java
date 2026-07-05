@@ -8,6 +8,7 @@ import com.delta.bom.dto.response.RootMaterialResponse;
 import com.delta.bom.entity.BomComponent;
 import com.delta.bom.entity.Material;
 import com.delta.bom.exception.BusinessException;
+import com.delta.bom.exception.OptimisticLockConflictException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.service.BomComponentService;
@@ -123,7 +124,11 @@ public class BomComponentServiceImpl implements BomComponentService {
             throw new BusinessException("找不到 BOM 組成關係，ID：" + id);
         }
         component.setQuantity(request.getQuantity());
-        bomComponentMapper.updateById(component);
+        // 用前端傳回來的版本（而非剛剛查到的最新版本）去比對，樂觀鎖才會在版本不符時真的擋下來
+        component.setVersion(request.getVersion());
+        if (bomComponentMapper.updateById(component) == 0) {
+            throw new OptimisticLockConflictException("這筆 BOM 組成關係已被其他人修改，請重新整理後再試（id：" + id + "）");
+        }
         log.info("更新 BOM 組成數量：id={}，quantity={}", id, request.getQuantity());
 
         Material parent = materialFinder.getOrThrow(component.getParentMaterialCode());

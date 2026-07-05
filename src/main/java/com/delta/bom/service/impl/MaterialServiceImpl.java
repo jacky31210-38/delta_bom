@@ -7,6 +7,7 @@ import com.delta.bom.entity.BomComponent;
 import com.delta.bom.entity.Material;
 import com.delta.bom.entity.SubstituteScenarioItem;
 import com.delta.bom.exception.BusinessException;
+import com.delta.bom.exception.OptimisticLockConflictException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
 import com.delta.bom.mapper.SubstituteScenarioItemMapper;
@@ -69,10 +70,16 @@ public class MaterialServiceImpl implements MaterialService {
     })
     public MaterialResponse updateMaterial(String materialCode, MaterialRequest request) {
         Material material = materialFinder.getOrThrow(materialCode);
+        if (request.getVersion() == null) {
+            throw new BusinessException("更新物料時必須提供 version，避免覆蓋他人異動");
+        }
         material.setMaterialName(request.getMaterialName());
         material.setUnit(request.getUnit());
         material.setUnitPrice(request.getUnitPrice());
-        materialMapper.updateById(material);
+        material.setVersion(request.getVersion());
+        if (materialMapper.updateById(material) == 0) {
+            throw new OptimisticLockConflictException("物料 " + materialCode + " 已被其他人修改，請重新整理後再試");
+        }
         log.info("更新物料：{}", materialCode);
         return toResponse(material);
     }

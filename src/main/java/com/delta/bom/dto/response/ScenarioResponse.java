@@ -18,6 +18,7 @@ public class ScenarioResponse {
     private String scenarioName;
     private String description;
     private long itemCount;
+    private Integer version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

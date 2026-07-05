@@ -37,6 +37,13 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(400, ex.getMessage());
     }
 
+    @ExceptionHandler(OptimisticLockConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse<Void> handleOptimisticLockConflict(OptimisticLockConflictException ex) {
+        log.warn("樂觀鎖版本衝突：{}", ex.getMessage());
+        return ApiResponse.error(409, ex.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> handleValidation(MethodArgumentNotValidException ex) {

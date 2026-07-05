@@ -10,6 +10,7 @@ import com.delta.bom.entity.SubstituteScenario;
 import com.delta.bom.entity.SubstituteScenarioItem;
 import com.delta.bom.exception.BomNotFoundException;
 import com.delta.bom.exception.BusinessException;
+import com.delta.bom.exception.OptimisticLockConflictException;
 import com.delta.bom.exception.ScenarioNotFoundException;
 import com.delta.bom.mapper.BomComponentMapper;
 import com.delta.bom.mapper.MaterialMapper;
@@ -205,6 +206,77 @@ class BomServiceImplTest {
         assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
             .isInstanceOf(BusinessException.class)
             .hasMessageContaining("尚未在物料主檔設定單價");
+    }
+
+    @Test
+    void upsertScenarioItem_updatesExistingRule_whenVersionMatches() {
+        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
+        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
+        when(materialFinder.getOrThrow("ALT")).thenReturn(
+            Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("5")).build());
+        SubstituteScenarioItem existing = SubstituteScenarioItem.builder()
+            .id(1L).scenarioKey("S1").primaryCode("LEAF").substituteCode("OLD-ALT")
+            .substituteRatio(BigDecimal.ONE).version(0).build();
+        when(scenarioItemMapper.selectOne(any())).thenReturn(existing);
+        when(scenarioItemMapper.updateById(existing)).thenReturn(1);
+
+        ScenarioItemRequest request = new ScenarioItemRequest();
+        request.setScenarioKey("S1");
+        request.setPrimaryMaterialCode("LEAF");
+        request.setSubstituteMaterialCode("ALT");
+        request.setVersion(0);
+
+        ScenarioItemResponse response = bomService.upsertScenarioItem(request);
+
+        assertThat(response.getSubstituteCode()).isEqualTo("ALT");
+    }
+
+    @Test
+    void upsertScenarioItem_updateWithoutVersion_throwsBusinessException() {
+        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
+        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
+        when(materialFinder.getOrThrow("ALT")).thenReturn(
+            Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("5")).build());
+        SubstituteScenarioItem existing = SubstituteScenarioItem.builder()
+            .id(1L).scenarioKey("S1").primaryCode("LEAF").substituteCode("OLD-ALT")
+            .substituteRatio(BigDecimal.ONE).version(0).build();
+        when(scenarioItemMapper.selectOne(any())).thenReturn(existing);
+
+        ScenarioItemRequest request = new ScenarioItemRequest();
+        request.setScenarioKey("S1");
+        request.setPrimaryMaterialCode("LEAF");
+        request.setSubstituteMaterialCode("ALT");
+
+        assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("必須提供 version");
+    }
+
+    @Test
+    void upsertScenarioItem_updateVersionConflict_throwsOptimisticLockConflictException() {
+        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
+        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
+        when(materialFinder.getOrThrow("ALT")).thenReturn(
+            Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("5")).build());
+        SubstituteScenarioItem existing = SubstituteScenarioItem.builder()
+            .id(1L).scenarioKey("S1").primaryCode("LEAF").substituteCode("OLD-ALT")
+            .substituteRatio(BigDecimal.ONE).version(0).build();
+        when(scenarioItemMapper.selectOne(any())).thenReturn(existing);
+        // 模擬別人已經搶先更新過，version 已經不是 0 了：WHERE version = 0 比對不到任何一列，回傳受影響筆數 0
+        when(scenarioItemMapper.updateById(existing)).thenReturn(0);
+
+        ScenarioItemRequest request = new ScenarioItemRequest();
+        request.setScenarioKey("S1");
+        request.setPrimaryMaterialCode("LEAF");
+        request.setSubstituteMaterialCode("ALT");
+        request.setVersion(0);
+
+        assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
+            .isInstanceOf(OptimisticLockConflictException.class)
+            .hasMessageContaining("已被其他人修改");
     }
 
     @Test

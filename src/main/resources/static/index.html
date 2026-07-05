@@ -593,16 +593,58 @@ function renderMaterialTable() {
     const tr = document.createElement('tr');
     for (let i = 0; i < 5; i++) tr.appendChild(document.createElement('td'));
     tr.children[0].textContent = m.materialCode;
-    tr.children[1].textContent = m.materialName;
-    tr.children[2].textContent = m.unit || '';
-    tr.children[3].textContent = m.unitPrice != null ? ('$' + m.unitPrice) : '-';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.value = m.materialName;
+    tr.children[1].appendChild(nameInput);
+
+    const unitInput = document.createElement('input');
+    unitInput.type = 'text';
+    unitInput.value = m.unit || '';
+    tr.children[2].appendChild(unitInput);
+
+    const priceInput = document.createElement('input');
+    priceInput.type = 'number';
+    priceInput.step = '0.01';
+    priceInput.value = m.unitPrice != null ? m.unitPrice : '';
+    tr.children[3].appendChild(priceInput);
+
+    const actionWrap = document.createElement('div');
+    actionWrap.className = 'inline-edit';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'secondary';
+    saveBtn.textContent = '儲存';
+    saveBtn.onclick = () => updateMaterial(
+      m.materialCode,
+      nameInput.value.trim(),
+      unitInput.value.trim(),
+      priceInput.value ? parseFloat(priceInput.value) : null,
+      m.version
+    );
     const delBtn = document.createElement('button');
     delBtn.className = 'danger';
     delBtn.textContent = '刪除';
     delBtn.onclick = () => deleteMaterial(m.materialCode);
-    tr.children[4].appendChild(delBtn);
+    actionWrap.append(saveBtn, delBtn);
+    tr.children[4].appendChild(actionWrap);
+
     tbody.appendChild(tr);
   });
+}
+
+async function updateMaterial(materialCode, materialName, unit, unitPrice, version) {
+  clearError();
+  if (!materialName) {
+    showError('物料名稱不可為空');
+    return;
+  }
+  try {
+    await api('PUT', `/materials/${encodeURIComponent(materialCode)}`, { materialCode, materialName, unit, unitPrice, version });
+    await refreshMaterials();
+  } catch (e) {
+    showError(e.message);
+  }
 }
 
 async function createMaterial() {
@@ -670,7 +712,7 @@ function renderComponentTable() {
     const saveBtn = document.createElement('button');
     saveBtn.className = 'secondary';
     saveBtn.textContent = '儲存';
-    saveBtn.onclick = () => updateComponentQuantity(c.id, parseFloat(qtyInput.value));
+    saveBtn.onclick = () => updateComponentQuantity(c.id, parseFloat(qtyInput.value), c.version);
     qtyWrap.append(qtyInput, saveBtn);
     tr.children[2].appendChild(qtyWrap);
 
@@ -702,10 +744,10 @@ async function createComponent() {
   }
 }
 
-async function updateComponentQuantity(id, quantity) {
+async function updateComponentQuantity(id, quantity, version) {
   clearError();
   try {
-    await api('PUT', `/bom-components/${id}`, { quantity });
+    await api('PUT', `/bom-components/${id}`, { quantity, version });
     await refreshBomComponents();
   } catch (e) {
     showError(e.message);
@@ -837,6 +879,7 @@ async function loadScenarioItems() {
   if (!scenarioKey) return;
   try {
     const items = await api('GET', `/scenarios/${encodeURIComponent(scenarioKey)}/items`);
+    scenarioItemsCache[scenarioKey] = items; // 保持跟「BOM 查詢」區共用的快取一致，供更新時查出現有版本號
     if (items.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" class="empty">此方案尚無替代規則</td></tr>';
       return;
@@ -880,11 +923,14 @@ async function upsertScenarioItem() {
     showError('這顆替代料尚未在「物料主檔管理」設定單價，請先去補上');
     return;
   }
+  // 若這顆主料在此方案已有規則，帶上目前的版本號，讓後端可以偵測並發覆寫；新增規則則不需要
+  const existingItem = (scenarioItemsCache[scenarioKey] || []).find(it => it.primaryCode === primaryMaterialCode);
   const body = {
     primaryMaterialCode,
     substituteMaterialCode,
     reason: document.getElementById('itemReason').value.trim(),
-    substituteRatio: parseFloat(document.getElementById('itemRatio').value) || 1
+    substituteRatio: parseFloat(document.getElementById('itemRatio').value) || 1,
+    version: existingItem ? existingItem.version : undefined
   };
   try {
     await api('POST', `/scenarios/${encodeURIComponent(scenarioKey)}/items`, body);

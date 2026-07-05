@@ -19,4 +19,7 @@ public class MaterialRequest {
 
     @DecimalMin(value = "0.0", inclusive = false, message = "單價必須大於 0")
     private BigDecimal unitPrice;
+
+    // 更新時必填：前端讀取資料當下拿到的版本號，用來偵測並發覆寫；新增時不需要，可留空
+    private Integer version;
 }
