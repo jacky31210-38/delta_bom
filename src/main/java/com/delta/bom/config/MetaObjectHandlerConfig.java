@@ -18,6 +18,8 @@ public class MetaObjectHandlerConfig implements MetaObjectHandler {
 
     @Override
     public void updateFill(MetaObject metaObject) {
-        this.strictUpdateFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now());
+        // 更新時一定要把 updatedAt 蓋成現在時間，不能用 strictUpdateFill——
+        // entity 是從資料庫查出來的，updatedAt 本來就非 null，strict 版本會判定「已有值」而跳過不填
+        this.setFieldValByName("updatedAt", LocalDateTime.now(), metaObject);
     }
 }
