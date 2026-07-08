@@ -30,6 +30,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -85,6 +87,24 @@ class BomServiceImplTest {
         BomCostResponse response = bomService.calculateCost("ROOT", null);
 
         assertThat(response.getTotalCost()).isEqualByComparingTo("60.0000");
+    }
+
+    @Test
+    void calculateCost_startingFromMiddleMaterial_treatsItAsItsOwnRoot() {
+        // rootCode 不需要是整棵樹最頂層的物料，中間層物料（例如 CHILD_A）一樣可以直接當根查詢，
+        // 這裡只會展開 CHILD_A 以下的子樹，不含 ROOT→CHILD_A 這條邊的數量累乘（CHILD_A 在 ROOT 底下是 ×2，
+        // 但站在 CHILD_A 自己的角度，生產 1 個 CHILD_A 只需要 3 個 LEAF）
+        Material childA = Material.builder().materialCode("CHILD_A").materialName("Child A").build();
+        Material leaf = Material.builder().materialCode("LEAF").materialName("Leaf").unitPrice(new BigDecimal("10.00")).build();
+        BomComponent childAToLeaf = BomComponent.builder()
+            .parentMaterialCode("CHILD_A").childMaterialCode("LEAF").quantity(new BigDecimal("3")).build();
+        when(bomComponentMapper.selectSubtreeEdges("CHILD_A")).thenReturn(List.of(childAToLeaf));
+        when(materialMapper.selectList(any())).thenReturn(List.of(childA, leaf));
+
+        BomCostResponse response = bomService.calculateCost("CHILD_A", null);
+
+        assertThat(response.getRootCode()).isEqualTo("CHILD_A");
+        assertThat(response.getTotalCost()).isEqualByComparingTo("30.0000"); // 3 × 10，不含父層 ×2
     }
 
     @Test
@@ -171,7 +191,7 @@ class BomServiceImplTest {
     }
 
     @Test
-    void upsertScenarioItem_createsNewRule_whenNoneExists() {
+    void createScenarioItem_createsNewRule_whenNoneExists() {
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
         when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
@@ -184,14 +204,38 @@ class BomServiceImplTest {
         request.setPrimaryMaterialCode("LEAF");
         request.setSubstituteMaterialCode("ALT");
 
-        ScenarioItemResponse response = bomService.upsertScenarioItem(request);
+        ScenarioItemResponse response = bomService.createScenarioItem(request);
 
         assertThat(response.getSubstituteRatio()).isEqualByComparingTo(BigDecimal.ONE); // 未填比例，預設 1
         assertThat(response.getUnitPrice()).isEqualByComparingTo("5"); // 單價即時從物料主檔取得，不是自己存的
     }
 
     @Test
-    void upsertScenarioItem_substituteMaterialHasNoPrice_throwsBusinessException() {
+    void createScenarioItem_alreadyExists_throwsBusinessException() {
+        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
+        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
+        when(materialFinder.getOrThrow("ALT")).thenReturn(
+            Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("5")).build());
+        SubstituteScenarioItem existing = SubstituteScenarioItem.builder()
+            .id(1L).scenarioKey("S1").primaryCode("LEAF").substituteCode("OLD-ALT")
+            .substituteRatio(BigDecimal.ONE).version(0).build();
+        when(scenarioItemMapper.selectOne(any())).thenReturn(existing);
+
+        ScenarioItemRequest request = new ScenarioItemRequest();
+        request.setScenarioKey("S1");
+        request.setPrimaryMaterialCode("LEAF");
+        request.setSubstituteMaterialCode("ALT");
+
+        // 新增只能建立全新規則，同一方案同一主料已有規則時要擋下、不能靜默覆蓋
+        assertThatThrownBy(() -> bomService.createScenarioItem(request))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("已有替代規則");
+        verify(scenarioItemMapper, never()).insert(any(SubstituteScenarioItem.class));
+    }
+
+    @Test
+    void createScenarioItem_substituteMaterialHasNoPrice_throwsBusinessException() {
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
         when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
@@ -203,13 +247,28 @@ class BomServiceImplTest {
         request.setPrimaryMaterialCode("LEAF");
         request.setSubstituteMaterialCode("ALT");
 
-        assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
+        assertThatThrownBy(() -> bomService.createScenarioItem(request))
             .isInstanceOf(BusinessException.class)
             .hasMessageContaining("尚未在物料主檔設定單價");
     }
 
     @Test
-    void upsertScenarioItem_updatesExistingRule_whenVersionMatches() {
+    void createScenarioItem_primaryMaterialNotFound_throwsBomNotFoundException() {
+        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
+        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("MISSING")).thenThrow(new BomNotFoundException("MISSING"));
+
+        ScenarioItemRequest request = new ScenarioItemRequest();
+        request.setScenarioKey("S1");
+        request.setPrimaryMaterialCode("MISSING");
+        request.setSubstituteMaterialCode("ALT");
+
+        assertThatThrownBy(() -> bomService.createScenarioItem(request))
+            .isInstanceOf(BomNotFoundException.class);
+    }
+
+    @Test
+    void updateScenarioItem_updatesExistingRule_whenVersionMatches() {
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
         when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
@@ -227,35 +286,53 @@ class BomServiceImplTest {
         request.setSubstituteMaterialCode("ALT");
         request.setVersion(0);
 
-        ScenarioItemResponse response = bomService.upsertScenarioItem(request);
+        ScenarioItemResponse response = bomService.updateScenarioItem(request);
 
         assertThat(response.getSubstituteCode()).isEqualTo("ALT");
     }
 
     @Test
-    void upsertScenarioItem_updateWithoutVersion_throwsBusinessException() {
+    void updateScenarioItem_notFound_throwsBusinessException() {
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
         when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
         when(materialFinder.getOrThrow("ALT")).thenReturn(
             Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("5")).build());
-        SubstituteScenarioItem existing = SubstituteScenarioItem.builder()
-            .id(1L).scenarioKey("S1").primaryCode("LEAF").substituteCode("OLD-ALT")
-            .substituteRatio(BigDecimal.ONE).version(0).build();
-        when(scenarioItemMapper.selectOne(any())).thenReturn(existing);
+        when(scenarioItemMapper.selectOne(any())).thenReturn(null);
+
+        ScenarioItemRequest request = new ScenarioItemRequest();
+        request.setScenarioKey("S1");
+        request.setPrimaryMaterialCode("LEAF");
+        request.setSubstituteMaterialCode("ALT");
+        request.setVersion(0);
+
+        // 更新只能修改既有規則，找不到規則時要擋下、不能靜默改成新增
+        assertThatThrownBy(() -> bomService.updateScenarioItem(request))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("尚無主料");
+        verify(scenarioItemMapper, never()).updateById(any(SubstituteScenarioItem.class));
+    }
+
+    @Test
+    void updateScenarioItem_withoutVersion_throwsBusinessException() {
+        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
+        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
+        when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
+        when(materialFinder.getOrThrow("ALT")).thenReturn(
+            Material.builder().materialCode("ALT").materialName("替代葉件").unitPrice(new BigDecimal("5")).build());
 
         ScenarioItemRequest request = new ScenarioItemRequest();
         request.setScenarioKey("S1");
         request.setPrimaryMaterialCode("LEAF");
         request.setSubstituteMaterialCode("ALT");
 
-        assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
+        assertThatThrownBy(() -> bomService.updateScenarioItem(request))
             .isInstanceOf(BusinessException.class)
             .hasMessageContaining("必須提供 version");
     }
 
     @Test
-    void upsertScenarioItem_updateVersionConflict_throwsOptimisticLockConflictException() {
+    void updateScenarioItem_versionConflict_throwsOptimisticLockConflictException() {
         SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
         when(scenarioMapper.selectOne(any())).thenReturn(scenario);
         when(materialFinder.getOrThrow("LEAF")).thenReturn(Material.builder().materialCode("LEAF").materialName("Leaf").build());
@@ -274,23 +351,8 @@ class BomServiceImplTest {
         request.setSubstituteMaterialCode("ALT");
         request.setVersion(0);
 
-        assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
+        assertThatThrownBy(() -> bomService.updateScenarioItem(request))
             .isInstanceOf(OptimisticLockConflictException.class)
             .hasMessageContaining("已被其他人修改");
-    }
-
-    @Test
-    void upsertScenarioItem_primaryMaterialNotFound_throwsBomNotFoundException() {
-        SubstituteScenario scenario = SubstituteScenario.builder().scenarioKey("S1").scenarioName("測試方案").build();
-        when(scenarioMapper.selectOne(any())).thenReturn(scenario);
-        when(materialFinder.getOrThrow("MISSING")).thenThrow(new BomNotFoundException("MISSING"));
-
-        ScenarioItemRequest request = new ScenarioItemRequest();
-        request.setScenarioKey("S1");
-        request.setPrimaryMaterialCode("MISSING");
-        request.setSubstituteMaterialCode("ALT");
-
-        assertThatThrownBy(() -> bomService.upsertScenarioItem(request))
-            .isInstanceOf(BomNotFoundException.class);
     }
 }

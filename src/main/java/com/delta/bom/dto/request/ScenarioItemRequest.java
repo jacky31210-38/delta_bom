@@ -12,8 +12,12 @@ public class ScenarioItemRequest {
     /** 所屬方案代碼；不驗證，由 controller 從路徑變數 scenarioKey 填入，不會出現在 request body 中 */
     private String scenarioKey;
 
-    /** 主料編碼（要被替換的物料） */
-    @NotBlank(message = "主料編碼不可為空")
+    /**
+     * 主料編碼（要被替換的物料）。
+     * 不加 @NotBlank：新增時由 request body 帶入，更新時由 controller 從路徑變數覆蓋，
+     * 若在此驗證，路徑變數還沒覆蓋進來前 @Valid 就會先擋下更新請求（即使路徑上明明有值）。
+     * 兩種情境都仍會經過 MaterialFinder.getOrThrow 檢查是否為有效物料編碼，空值一樣會被擋下。
+     */
     private String primaryMaterialCode;
 
     /** 替代料編碼 */

@@ -359,58 +359,74 @@ public class BomServiceImpl implements BomService {
         @CacheEvict(value = "bomStructure", allEntries = true),
         @CacheEvict(value = "bomCost", allEntries = true)
     })
-    public ScenarioItemResponse upsertScenarioItem(ScenarioItemRequest request) {
+    public ScenarioItemResponse createScenarioItem(ScenarioItemRequest request) {
         getScenarioOrThrow(request.getScenarioKey());
 
         // 確認主料存在（規則本身不記錄數量，數量是查詢當下才輸入，故不在此驗證 BOM 數量）
         materialFinder.getOrThrow(request.getPrimaryMaterialCode());
+        Material substituteMaterial = getPricedSubstituteOrThrow(request.getSubstituteMaterialCode());
 
-        // 替代料的名稱/單價一律即時查 material，這裡順便確認替代料存在、且必須已設定單價，
-        // 否則之後算成本時無從得知該用多少單價
-        Material substituteMaterial = materialFinder.getOrThrow(request.getSubstituteMaterialCode());
-        if (substituteMaterial.getUnitPrice() == null) {
-            throw new BusinessException("替代料 " + request.getSubstituteMaterialCode() + " 尚未在物料主檔設定單價，無法作為替代選項");
+        // 新增只能建立全新規則，同一方案內同一顆主料若已有規則，一律擋下、不覆蓋，
+        // 避免「新增」被誤用成靜默覆寫既有規則（見同方案同主料只能有一條規則的唯一鍵限制）
+        SubstituteScenarioItem existing = findScenarioItem(request.getScenarioKey(), request.getPrimaryMaterialCode());
+        if (existing != null) {
+            throw new BusinessException(String.format(
+                "方案 %s 對主料 %s 已有替代規則（替代料 %s），請改用「編輯」修改既有規則",
+                request.getScenarioKey(), request.getPrimaryMaterialCode(), existing.getSubstituteCode()));
         }
 
-        BigDecimal ratio = request.getSubstituteRatio() != null ? request.getSubstituteRatio() : BigDecimal.ONE;
+        SubstituteScenarioItem item = SubstituteScenarioItem.builder()
+            .scenarioKey(request.getScenarioKey())
+            .primaryCode(request.getPrimaryMaterialCode())
+            .substituteCode(request.getSubstituteMaterialCode())
+            .reason(request.getReason())
+            .substituteRatio(request.getSubstituteRatio() != null ? request.getSubstituteRatio() : BigDecimal.ONE)
+            .build();
+        scenarioItemMapper.insert(item);
+        log.info("方案 {} 新增替代規則：{} → {}", request.getScenarioKey(),
+            request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
+        return toScenarioItemResponse(item, substituteMaterial);
+    }
 
-        // UPSERT：同一方案內，有則更新、無則新增
-        SubstituteScenarioItem existing = scenarioItemMapper.selectOne(
-            new LambdaQueryWrapper<SubstituteScenarioItem>()
-                .eq(SubstituteScenarioItem::getScenarioKey, request.getScenarioKey())
-                .eq(SubstituteScenarioItem::getPrimaryCode, request.getPrimaryMaterialCode())
-        );
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = "bomStructure", allEntries = true),
+        @CacheEvict(value = "bomCost", allEntries = true)
+    })
+    public ScenarioItemResponse updateScenarioItem(ScenarioItemRequest request) {
+        getScenarioOrThrow(request.getScenarioKey());
 
+        materialFinder.getOrThrow(request.getPrimaryMaterialCode());
+        Material substituteMaterial = getPricedSubstituteOrThrow(request.getSubstituteMaterialCode());
+
+        if (request.getVersion() == null) {
+            throw new BusinessException("更新既有替代規則時必須提供 version，避免覆蓋他人異動");
+        }
+
+        // 更新只能修改既有規則，找不到就直接失敗，不會靜默改成新增（避免跟「新增」的職責混在一起）
+        SubstituteScenarioItem existing = findScenarioItem(request.getScenarioKey(), request.getPrimaryMaterialCode());
         if (existing == null) {
-            SubstituteScenarioItem item = SubstituteScenarioItem.builder()
-                .scenarioKey(request.getScenarioKey())
-                .primaryCode(request.getPrimaryMaterialCode())
-                .substituteCode(request.getSubstituteMaterialCode())
-                .reason(request.getReason())
-                .substituteRatio(ratio)
-                .build();
-            scenarioItemMapper.insert(item);
-            log.info("方案 {} 新增替代規則：{} → {}", request.getScenarioKey(),
-                request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
-            return toScenarioItemResponse(item, substituteMaterial);
-        } else {
-            if (request.getVersion() == null) {
-                throw new BusinessException("更新既有替代規則時必須提供 version，避免覆蓋他人異動");
-            }
-            existing.setSubstituteCode(request.getSubstituteMaterialCode());
-            existing.setReason(request.getReason());
-            existing.setSubstituteRatio(ratio);
-            // 用前端傳回來的版本（而非剛剛查到的最新版本）去比對，樂觀鎖才會在版本不符時真的擋下來
-            existing.setVersion(request.getVersion());
-            if (scenarioItemMapper.updateById(existing) == 0) {
-                throw new OptimisticLockConflictException(String.format(
-                    "方案 %s 對主料 %s 的替代規則已被其他人修改，請重新整理後再試",
-                    request.getScenarioKey(), request.getPrimaryMaterialCode()));
-            }
-            log.info("方案 {} 更新替代規則：{} → {}", request.getScenarioKey(),
-                request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
-            return toScenarioItemResponse(existing, substituteMaterial);
+            throw new BusinessException(String.format(
+                "方案 %s 尚無主料 %s 的替代規則，請改用「新增」建立", request.getScenarioKey(), request.getPrimaryMaterialCode()));
         }
+
+        existing.setSubstituteCode(request.getSubstituteMaterialCode());
+        existing.setReason(request.getReason());
+        existing.setSubstituteRatio(request.getSubstituteRatio() != null ? request.getSubstituteRatio() : BigDecimal.ONE);
+        // 用前端傳回來的版本（而非剛剛查到的最新版本）去比對，樂觀鎖才會在版本不符時真的擋下來
+        existing.setVersion(request.getVersion());
+        if (scenarioItemMapper.updateById(existing) == 0) {
+            throw new OptimisticLockConflictException(String.format(
+                "方案 %s 對主料 %s 的替代規則已被其他人修改，請重新整理後再試",
+                request.getScenarioKey(), request.getPrimaryMaterialCode()));
+        }
+        log.info("方案 {} 更新替代規則：{} → {}", request.getScenarioKey(),
+            request.getPrimaryMaterialCode(), request.getSubstituteMaterialCode());
+        return toScenarioItemResponse(existing, substituteMaterial);
     }
 
     /**
@@ -496,11 +512,7 @@ public class BomServiceImpl implements BomService {
         for (SubstitutionInput input : substitutions) {
             getScenarioOrThrow(input.getScenarioKey());
 
-            SubstituteScenarioItem rule = scenarioItemMapper.selectOne(
-                new LambdaQueryWrapper<SubstituteScenarioItem>()
-                    .eq(SubstituteScenarioItem::getScenarioKey, input.getScenarioKey())
-                    .eq(SubstituteScenarioItem::getPrimaryCode, input.getPrimaryCode())
-            );
+            SubstituteScenarioItem rule = findScenarioItem(input.getScenarioKey(), input.getPrimaryCode());
             if (rule == null) {
                 throw new BusinessException(String.format(
                     "方案 %s 沒有針對主料 %s 定義替代規則", input.getScenarioKey(), input.getPrimaryCode()));
@@ -527,6 +539,35 @@ public class BomServiceImpl implements BomService {
             throw new ScenarioNotFoundException(scenarioKey);
         }
         return scenario;
+    }
+
+    /**
+     * 查詢指定方案內、指定主料目前的替代規則，查無資料回傳 null（是否視為錯誤由呼叫端決定）。
+     *
+     * @param scenarioKey 方案 key
+     * @param primaryCode 主料編碼
+     * @return 查到的規則，查無資料則為 null
+     */
+    private SubstituteScenarioItem findScenarioItem(String scenarioKey, String primaryCode) {
+        return scenarioItemMapper.selectOne(
+            new LambdaQueryWrapper<SubstituteScenarioItem>()
+                .eq(SubstituteScenarioItem::getScenarioKey, scenarioKey)
+                .eq(SubstituteScenarioItem::getPrimaryCode, primaryCode)
+        );
+    }
+
+    /**
+     * 確認替代料存在、且已在物料主檔設定單價，否則之後算成本時無從得知該用多少單價。
+     *
+     * @param substituteMaterialCode 替代料編碼
+     * @return 已確認有單價的替代料
+     */
+    private Material getPricedSubstituteOrThrow(String substituteMaterialCode) {
+        Material substituteMaterial = materialFinder.getOrThrow(substituteMaterialCode);
+        if (substituteMaterial.getUnitPrice() == null) {
+            throw new BusinessException("替代料 " + substituteMaterialCode + " 尚未在物料主檔設定單價，無法作為替代選項");
+        }
+        return substituteMaterial;
     }
 
     /**
