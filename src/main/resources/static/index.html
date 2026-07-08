@@ -232,7 +232,7 @@
   <div class="row">
     <div class="field">
       <label>選擇方案</label>
-      <select id="itemScenarioSelect" onchange="loadScenarioItems()"><option value="">請先選擇方案</option></select>
+      <select id="itemScenarioSelect" onchange="resetScenarioItemForm(); loadScenarioItems()"><option value="">請先選擇方案</option></select>
     </div>
   </div>
   <div class="row">
@@ -256,9 +256,11 @@
       <label>原因</label>
       <input id="itemReason" placeholder="選填">
     </div>
-    <button onclick="upsertScenarioItem()">新增/更新規則</button>
+    <button onclick="createScenarioItem()">新增規則</button>
+    <button onclick="updateScenarioItem()">編輯規則</button>
+    <button onclick="resetScenarioItemForm()">清空表單</button>
   </div>
-  <div class="muted" style="margin-bottom:10px;">單價不用在這裡輸入，會直接以替代料在「物料主檔管理」設定的單價為準；若該物料尚未設定單價，會無法儲存。</div>
+  <div class="muted" id="itemFormHint" style="margin-bottom:10px;">單價不用在這裡輸入，會直接以替代料在「物料主檔管理」設定的單價為準；若該物料尚未設定單價，會無法儲存。</div>
   <table>
     <thead>
       <tr><th>主料</th><th>替代料</th><th>名稱</th><th>比例</th><th>單價</th><th>原因</th><th></th></tr>
@@ -893,10 +895,14 @@ async function loadScenarioItems() {
       tr.children[3].textContent = it.substituteRatio;
       tr.children[4].textContent = '$' + it.unitPrice;
       tr.children[5].textContent = it.reason || '';
+      const editBtn = document.createElement('button');
+      editBtn.textContent = '編輯';
+      editBtn.onclick = () => loadScenarioItemIntoForm(it);
       const delBtn = document.createElement('button');
       delBtn.className = 'danger';
       delBtn.textContent = '刪除';
       delBtn.onclick = () => deleteScenarioItem(scenarioKey, it.primaryCode);
+      tr.children[6].appendChild(editBtn);
       tr.children[6].appendChild(delBtn);
       tbody.appendChild(tr);
     });
@@ -905,39 +911,89 @@ async function loadScenarioItems() {
   }
 }
 
-async function upsertScenarioItem() {
+// 把既有規則帶入表單，方便直接按「編輯規則」修改（而不必自己重打一次主料/替代料代碼）
+function loadScenarioItemIntoForm(it) {
   clearError();
+  const substituteMaterial = allMaterials.find(m => m.materialCode === it.substituteCode);
+  itemPrimaryCombobox.setValue(it.primaryCode, it.primaryCode);
+  itemSubstituteCombobox.setValue(it.substituteCode, substituteMaterial ? `${it.substituteCode}（${substituteMaterial.materialName}）` : it.substituteCode);
+  document.getElementById('itemRatio').value = it.substituteRatio;
+  document.getElementById('itemReason').value = it.reason || '';
+  document.getElementById('itemFormHint').textContent =
+    `目前正在編輯主料 ${it.primaryCode} 的既有規則（version ${it.version}）。改用「新增規則」會因為此主料已有規則而被拒絕。`;
+}
+
+function resetScenarioItemForm() {
+  clearError();
+  itemPrimaryCombobox.setValue('');
+  itemSubstituteCombobox.setValue('');
+  document.getElementById('itemRatio').value = 1;
+  document.getElementById('itemReason').value = '';
+  document.getElementById('itemFormHint').textContent =
+    '單價不用在這裡輸入，會直接以替代料在「物料主檔管理」設定的單價為準；若該物料尚未設定單價，會無法儲存。';
+}
+
+function readScenarioItemForm() {
   const scenarioKey = document.getElementById('itemScenarioSelect').value;
   if (!scenarioKey) {
     showError('請先選擇一個方案');
-    return;
+    return null;
   }
   const primaryMaterialCode = itemPrimaryCombobox.getValue();
   const substituteMaterialCode = itemSubstituteCombobox.getValue();
   if (!primaryMaterialCode || !substituteMaterialCode) {
     showError('請從下拉選單選擇主料與替代料（若物料尚未建立，請先到「物料主檔管理」新增）');
-    return;
+    return null;
   }
   const substituteMaterial = allMaterials.find(m => m.materialCode === substituteMaterialCode);
   if (!substituteMaterial || substituteMaterial.unitPrice == null) {
     showError('這顆替代料尚未在「物料主檔管理」設定單價，請先去補上');
-    return;
+    return null;
   }
-  // 若這顆主料在此方案已有規則，帶上目前的版本號，讓後端可以偵測並發覆寫；新增規則則不需要
-  const existingItem = (scenarioItemsCache[scenarioKey] || []).find(it => it.primaryCode === primaryMaterialCode);
-  const body = {
+  return {
+    scenarioKey,
     primaryMaterialCode,
     substituteMaterialCode,
     reason: document.getElementById('itemReason').value.trim(),
-    substituteRatio: parseFloat(document.getElementById('itemRatio').value) || 1,
-    version: existingItem ? existingItem.version : undefined
+    substituteRatio: parseFloat(document.getElementById('itemRatio').value) || 1
   };
+}
+
+async function afterScenarioItemSaved(scenarioKey) {
+  delete scenarioItemsCache[scenarioKey];
+  resetScenarioItemForm();
+  await loadScenarioItems();
+  await refreshScenarios();
+  await loadAllScenarioItems();
+}
+
+// 「新增規則」只能建立全新規則：同一方案內同一顆主料若已有規則，後端會擋下（不覆蓋），請改用「編輯規則」
+async function createScenarioItem() {
+  clearError();
+  const form = readScenarioItemForm();
+  if (!form) return;
   try {
-    await api('POST', `/scenarios/${encodeURIComponent(scenarioKey)}/items`, body);
-    delete scenarioItemsCache[scenarioKey];
-    await loadScenarioItems();
-    await refreshScenarios();
-    await loadAllScenarioItems();
+    await api('POST', `/scenarios/${encodeURIComponent(form.scenarioKey)}/items`, form);
+    await afterScenarioItemSaved(form.scenarioKey);
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// 「編輯規則」只能修改既有規則：找不到既有規則、或版本號跟他人異動衝突都會被後端擋下
+async function updateScenarioItem() {
+  clearError();
+  const form = readScenarioItemForm();
+  if (!form) return;
+  const existingItem = (scenarioItemsCache[form.scenarioKey] || []).find(it => it.primaryCode === form.primaryMaterialCode);
+  if (!existingItem) {
+    showError(`主料 ${form.primaryMaterialCode} 在此方案尚無規則，請改用「新增規則」`);
+    return;
+  }
+  try {
+    await api('PUT', `/scenarios/${encodeURIComponent(form.scenarioKey)}/items/${encodeURIComponent(form.primaryMaterialCode)}`,
+      { ...form, version: existingItem.version });
+    await afterScenarioItemSaved(form.scenarioKey);
   } catch (e) {
     showError(e.message);
   }

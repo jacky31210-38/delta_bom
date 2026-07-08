@@ -78,27 +78,52 @@ public class ScenarioController {
     }
 
     /**
-     * 在指定方案內建立或更新一筆「主料 → 替代料」規則（有則更新、無則新增）。
+     * 在指定方案內建立一筆全新的「主料 → 替代料」規則。
      *
      * @param scenarioKey 方案 key，例如 MULTI_SOURCE
-     * @param request     主料編碼、替代料編碼、比例、原因；更新既有規則時需一併帶上目前的 version
-     * @return 新增或更新後的規則內容
+     * @param request     主料編碼、替代料編碼、比例、原因
+     * @return 新建立的規則內容
      */
     @PostMapping("/{scenarioKey}/items")
     @Operation(
-        summary = "套用方案內的替代料配對（UPSERT）",
-        description = "在指定方案內建立或更新一筆「主料 → 替代料」規則（比例、單價），不含數量——" +
+        summary = "新增方案內的替代料配對",
+        description = "在指定方案內建立一筆全新的「主料 → 替代料」規則（比例、單價），不含數量——" +
                       "數量是查詢 BOM 結構／計算成本時才動態輸入。\n\n" +
-                      "- 有則更新（更換替代料、調整比例/單價）\n" +
-                      "- 無則新增"
+                      "若該方案內該主料已有規則會回傳 400，請改用 PUT 修改既有規則（同一方案同一主料只能有一條規則）。"
     )
-    public ApiResponse<ScenarioItemResponse> upsertScenarioItem(
+    public ApiResponse<ScenarioItemResponse> createScenarioItem(
         @Parameter(description = "方案 key，例如 MULTI_SOURCE")
         @PathVariable String scenarioKey,
         @RequestBody @Valid ScenarioItemRequest request
     ) {
         request.setScenarioKey(scenarioKey);
-        return ApiResponse.success(bomService.upsertScenarioItem(request));
+        return ApiResponse.success(bomService.createScenarioItem(request));
+    }
+
+    /**
+     * 修改指定方案內、指定主料的既有「主料 → 替代料」規則。
+     *
+     * @param scenarioKey 方案 key，例如 MULTI_SOURCE
+     * @param primaryCode 主料編碼，例如 IC-MCU
+     * @param request     替代料編碼、比例、原因，並須帶上目前的 version 以偵測並發覆寫
+     * @return 更新後的規則內容
+     */
+    @PutMapping("/{scenarioKey}/items/{primaryCode}")
+    @Operation(
+        summary = "修改方案內既有的替代料配對",
+        description = "修改指定方案內、指定主料的既有「主料 → 替代料」規則（更換替代料、調整比例/原因）。\n\n" +
+                      "須帶上目前的 version 以偵測並發覆寫；若該主料尚無規則會回傳 400，請改用 POST 新增。"
+    )
+    public ApiResponse<ScenarioItemResponse> updateScenarioItem(
+        @Parameter(description = "方案 key，例如 MULTI_SOURCE")
+        @PathVariable String scenarioKey,
+        @Parameter(description = "主料編碼，例如 IC-MCU")
+        @PathVariable String primaryCode,
+        @RequestBody @Valid ScenarioItemRequest request
+    ) {
+        request.setScenarioKey(scenarioKey);
+        request.setPrimaryMaterialCode(primaryCode);
+        return ApiResponse.success(bomService.updateScenarioItem(request));
     }
 
     /**

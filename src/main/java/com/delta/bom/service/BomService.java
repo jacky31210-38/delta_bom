@@ -53,12 +53,22 @@ public interface BomService {
     void deleteScenario(String scenarioKey);
 
     /**
-     * 在指定方案內新增或更新一筆「主料 → 替代料」規則。
+     * 在指定方案內建立一筆全新的「主料 → 替代料」規則。若該方案內該主料已有規則，會被擋下（不覆蓋），
+     * 請改用 {@link #updateScenarioItem} 修改既有規則。
      *
-     * @param request 方案 key、主料編碼、替代料編碼、比例、原因；更新既有規則時需一併帶上目前的 version 以偵測並發覆寫
-     * @return 新增或更新後的規則內容
+     * @param request 方案 key、主料編碼、替代料編碼、比例、原因
+     * @return 新建立的規則內容
      */
-    ScenarioItemResponse upsertScenarioItem(ScenarioItemRequest request);
+    ScenarioItemResponse createScenarioItem(ScenarioItemRequest request);
+
+    /**
+     * 修改指定方案內、指定主料的既有「主料 → 替代料」規則。若該規則不存在會被擋下，
+     * 請改用 {@link #createScenarioItem} 建立新規則。
+     *
+     * @param request 方案 key、主料編碼、替代料編碼、比例、原因，並須帶上目前的 version 以偵測並發覆寫
+     * @return 更新後的規則內容
+     */
+    ScenarioItemResponse updateScenarioItem(ScenarioItemRequest request);
 
     /**
      * 列出指定方案內的所有替代規則。
